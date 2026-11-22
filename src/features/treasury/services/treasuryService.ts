@@ -134,7 +134,7 @@ export function logoutTreasury(token: string) {
 
 export function sendSingleTransfer(
   token: string,
-  payload: { to: string; amount: number; scheduledAt?: string; pin?: string },
+  payload: { to: string; amount: number; scheduledAt?: string; pin?: string; twoStepCode?: string },
 ) {
   return requestJson<{ success?: boolean; job?: TreasuryJob }>(
     '/api/client/send',
@@ -153,6 +153,7 @@ export function sendBatchTransfer(
     amountPerUser: number;
     scheduledAt?: string;
     pin?: string;
+    twoStepCode?: string;
   },
 ) {
   return requestJson<{ success?: boolean; job?: TreasuryJob }>(
@@ -177,8 +178,8 @@ export function startScheduledTransferNow(token: string, jobId: string) {
 }
 
 export function submitTransferTwoStep(token: string, jobId: string, code: string) {
-  return requestJson<{ success?: boolean }>(
-    '/api/client/twostep',
+  return requestJson<{ success?: boolean; job?: TreasuryJob }>(
+    '/api/client/resume',
     {
       method: 'POST',
       body: JSON.stringify({ jobId, pin: code, twoStepCode: code }),

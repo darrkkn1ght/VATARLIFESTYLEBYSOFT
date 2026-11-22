@@ -765,38 +765,50 @@ export function MemberTreasuryPage() {
                       </div>
 
                       {job.needsTwoStep && job.status === 'PAUSED' && (
-                        <div className="flex flex-wrap items-center gap-2 border border-brand-gold/40 bg-brand-charcoal/80 p-3">
-                          <KeyRound className="h-4 w-4 text-brand-gold" />
-                          <input
-                            type="text"
-                            value={jobCodes[job.id] || ''}
-                            onChange={(e) =>
-                              setJobCodes((prev) => ({ ...prev, [job.id]: e.target.value }))
-                            }
-                            placeholder={
-                              job.twoStepType === 'pin'
-                                ? 'Enter 4-digit Transaction PIN'
-                                : 'Enter 6-digit 2FA code'
-                            }
-                            className="flex-1 min-w-[180px] border hairline-border bg-brand-black px-3 py-1.5 font-mono text-xs text-brand-white focus:border-brand-gold focus:outline-none"
-                          />
-                          <Button
-                            size="sm"
-                            onClick={async () => {
-                              const code = (jobCodes[job.id] || '').trim();
-                              if (!token || !code) return;
-                              const res = await submitTransferTwoStep(token, job.id, code);
-                              if (res.ok) {
-                                setJobCodes((prev) => ({ ...prev, [job.id]: '' }));
-                                notify('Verification submitted — resuming transfer.', 'success');
-                                await refreshSession();
-                              } else {
-                                notify(res.data.error || 'Failed to resume transfer.', 'error');
+                        <div className="space-y-2 border border-brand-gold/50 bg-brand-charcoal/80 p-3">
+                          <div className="flex items-center gap-2 font-body text-xs font-semibold text-brand-gold">
+                            <KeyRound className="h-4 w-4 shrink-0" />
+                            <span>
+                              {job.twoStepType === 'pin'
+                                ? 'Transaction PIN Required to Continue'
+                                : 'Two-Step 2FA Verification Required (6-Digit Code)'}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              autoComplete="one-time-code"
+                              maxLength={10}
+                              value={jobCodes[job.id] || ''}
+                              onChange={(e) =>
+                                setJobCodes((prev) => ({ ...prev, [job.id]: e.target.value }))
                               }
-                            }}
-                          >
-                            Submit &amp; Resume
-                          </Button>
+                              placeholder={
+                                job.twoStepType === 'pin'
+                                  ? 'Enter 4-digit Transaction PIN'
+                                  : 'Enter 6-digit 2FA code (Authenticator / Email)'
+                              }
+                              className="flex-1 min-w-[180px] border hairline-border bg-brand-black px-3 py-1.5 font-mono text-xs text-brand-white focus:border-brand-gold focus:outline-none"
+                            />
+                            <Button
+                              size="sm"
+                              onClick={async () => {
+                                const code = (jobCodes[job.id] || '').trim();
+                                if (!token || !code) return;
+                                const res = await submitTransferTwoStep(token, job.id, code);
+                                if (res.ok) {
+                                  setJobCodes((prev) => ({ ...prev, [job.id]: '' }));
+                                  notify('Verification submitted — resuming transfer.', 'success');
+                                  await refreshSession();
+                                } else {
+                                  notify(res.data.error || 'Failed to resume transfer.', 'error');
+                                }
+                              }}
+                            >
+                              Submit &amp; Resume
+                            </Button>
+                          </div>
                         </div>
                       )}
 

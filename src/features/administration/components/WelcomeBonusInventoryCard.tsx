@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   CheckCircle2,
   Gift,
+  KeyRound,
   LogOut,
   RefreshCw,
   ShieldCheck,
@@ -17,8 +18,10 @@ import {
   parseNairaAmount,
   resendLagosLife2FA,
   sendSingleTransfer,
+  submitTransferTwoStep,
   verifyLagosLife2FA,
   type TreasuryAccount,
+  type TreasuryJob,
 } from '@/features/treasury/services/treasuryService';
 
 const BONUS_TOKEN_KEY = 'vatar_admin_bonus_treasury_token';
@@ -139,6 +142,8 @@ export function WelcomeBonusInventoryCard({
     localStorage.getItem(BONUS_TOKEN_KEY),
   );
   const [account, setAccount] = useState<TreasuryAccount | null>(null);
+  const [jobs, setJobs] = useState<TreasuryJob[]>([]);
+  const [jobCodes, setJobCodes] = useState<Record<string, string>>({});
   const [bonusPin, setBonusPin] = useState<string>(
     () => sessionStorage.getItem('vatar_admin_bonus_pin') || '',
   );
@@ -169,10 +174,12 @@ export function WelcomeBonusInventoryCard({
         const res = await fetchTreasuryStatus(t);
         if (res.ok && res.data.account) {
           setAccount(res.data.account);
+          setJobs(res.data.jobs || []);
         } else if (res.status === 401) {
           localStorage.removeItem(BONUS_TOKEN_KEY);
           setToken(null);
           setAccount(null);
+          setJobs([]);
         }
       } catch {
         // Ignore transient errors
@@ -183,7 +190,12 @@ export function WelcomeBonusInventoryCard({
 
   useEffect(() => {
     setCfg(loadWelcomeBonusConfig());
-    if (token) void syncAccount(token);
+    if (!token) return;
+    void syncAccount(token);
+    const id = window.setInterval(() => {
+      void syncAccount(token);
+    }, 3000);
+    return () => window.clearInterval(id);
   }, [token, syncAccount, refreshSignal]);
 
   const updateCfg = (patch: Partial<WelcomeBonusConfig>) => {
@@ -295,6 +307,10 @@ export function WelcomeBonusInventoryCard({
     setNotice('Bonus inventory account disconnected.');
   };
 
+  const pausedJobsNeedingCode = jobs.filter(
+    (j) => j.needsTwoStep && j.status === 'PAUSED',
+  );
+
   return (
     <div className="mb-8 border hairline-border bg-brand-charcoal/80 p-5 sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -344,6 +360,59 @@ export function WelcomeBonusInventoryCard({
           </Button>
         </div>
       </div>
+
+      {pausedJobsNeedingCode.length > 0 && token && (
+        <div className="mt-4 space-y-3 border border-brand-gold/55 bg-brand-black/90 p-4">
+          {pausedJobsNeedingCode.map((job) => (
+            <div key={job.id} className="space-y-2">
+              <div className="flex items-center gap-2 font-body text-xs font-semibold text-brand-gold">
+                <KeyRound className="h-4 w-4 shrink-0" />
+                <span>
+                  {job.twoStepType === 'pin'
+                    ? `Bonus to ${job.targetLabel || job.target} needs your 4-digit Transaction PIN:`
+                    : `Bonus to ${job.targetLabel || job.target} needs your 6-digit 2FA code:`}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={10}
+                  value={jobCodes[job.id] || ''}
+                  onChange={(e) =>
+                    setJobCodes((prev) => ({ ...prev, [job.id]: e.target.value }))
+                  }
+                  placeholder={
+                    job.twoStepType === 'pin'
+                      ? '4-digit Transaction PIN'
+                      : '6-digit 2FA code (Authenticator / Email)'
+                  }
+                  className="flex-1 min-w-[180px] border hairline-border bg-brand-charcoal px-3 py-1.5 font-mono text-xs text-brand-white focus:border-brand-gold focus:outline-none"
+                />
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    const code = (jobCodes[job.id] || '').trim();
+                    if (!code) return;
+                    setError(null);
+                    const res = await submitTransferTwoStep(token, job.id, code);
+                    if (res.ok) {
+                      setJobCodes((prev) => ({ ...prev, [job.id]: '' }));
+                      setNotice('Verification submitted — resuming welcome bonus transfer.');
+                      await syncAccount(token);
+                    } else {
+                      setError(res.data.error || 'Invalid verification code.');
+                    }
+                  }}
+                >
+                  Submit &amp; Send
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {expanded && (
         <div className="mt-5 space-y-5 border-t hairline-border pt-5">
