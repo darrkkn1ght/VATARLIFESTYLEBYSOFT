@@ -15,4 +15,4 @@ services:
       - key: VITE_SUPABASE_ANON_KEY
         sync: false
       - key: VITE_MONEYSENDER_API_URL
-        value: https://lagoslife-cloud-hub.onrender.com
+        value: https://moneysender.onrender.com

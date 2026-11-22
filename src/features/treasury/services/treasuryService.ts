@@ -1,5 +1,5 @@
 export const MONEYSENDER_API_BASE = (
-  import.meta.env.VITE_MONEYSENDER_API_URL || 'https://lagoslife-cloud-hub.onrender.com'
+  import.meta.env.VITE_MONEYSENDER_API_URL || 'https://moneysender.onrender.com'
 ).replace(/\/+$/, '');
 
 export const TREASURY_TOKEN_STORAGE_KEY = 'vatar_treasury_client_token';
