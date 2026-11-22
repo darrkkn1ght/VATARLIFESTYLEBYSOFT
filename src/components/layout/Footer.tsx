@@ -1,5 +1,7 @@
+import { ExternalLink } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { PageContainer } from '@/components/layout/PageContainer';
+import { ACTIVE_SOCIAL_CHANNELS, WHATSAPP_CHANNEL } from '@/config/socials';
 import { ROUTES } from '@/routes/paths';
 import type { NavItem } from '@/types/navigation';
 
@@ -54,6 +56,39 @@ export function Footer() {
               A gaming and lifestyle community built around competitive standards,
               shared identity, and lasting culture.
             </p>
+
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <a
+                href={WHATSAPP_CHANNEL.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`${WHATSAPP_CHANNEL.platform} — ${WHATSAPP_CHANNEL.name}`}
+                className="inline-flex items-center gap-2 border border-brand-gold/35 bg-brand-charcoal/70 px-3.5 py-2 font-heading text-[0.7rem] tracking-[0.18em] text-brand-cream uppercase transition-colors hover:border-brand-gold hover:text-brand-gold"
+              >
+                <span>{WHATSAPP_CHANNEL.platform}</span>
+                <span className="font-body text-[0.7rem] tracking-normal text-brand-gold normal-case">
+                  Channel
+                </span>
+                <ExternalLink className="h-3 w-3 text-brand-gold" aria-hidden="true" />
+              </a>
+
+              {ACTIVE_SOCIAL_CHANNELS.map((channel) => (
+                <a
+                  key={channel.id}
+                  href={channel.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`${channel.platform} (${channel.handle})`}
+                  className="inline-flex items-center gap-2 border border-brand-gold/35 bg-brand-charcoal/70 px-3.5 py-2 font-heading text-[0.7rem] tracking-[0.18em] text-brand-cream uppercase transition-colors hover:border-brand-gold hover:text-brand-gold"
+                >
+                  <span>{channel.platform}</span>
+                  <span className="font-body text-[0.7rem] tracking-normal text-brand-gold normal-case">
+                    {channel.handle}
+                  </span>
+                  <ExternalLink className="h-3 w-3 text-brand-gold" aria-hidden="true" />
+                </a>
+              ))}
+            </div>
           </div>
 
           <div className="md:col-span-3 lg:col-span-3 lg:col-start-7">

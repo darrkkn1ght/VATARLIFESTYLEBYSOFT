@@ -10,13 +10,7 @@ import { PageContainer } from '@/components/layout/PageContainer';
 import { PublicPageHeader } from '@/components/shared/PublicPageHeader';
 import { SectionHeading } from '@/components/shared/SectionHeading';
 import { Button } from '@/components/ui/Button';
-
-const SOCIAL_PLACEHOLDERS = [
-  { platform: 'Instagram', status: 'Official handle pending publication' },
-  { platform: 'X (Twitter)', status: 'Official handle pending publication' },
-  { platform: 'TikTok', status: 'Official handle pending publication' },
-  { platform: 'YouTube', status: 'Official channel pending publication' },
-] as const;
+import { SOCIAL_CHANNELS, WHATSAPP_CHANNEL } from '@/config/socials';
 
 const SUPPORT_AREAS = [
   {
@@ -80,40 +74,57 @@ export function ContactPage() {
 
               <div className="mt-8 border-t hairline-border pt-6">
                 <p className="font-body text-xs text-brand-muted">
-                  Official WhatsApp invite link will be activated here once supplied.
+                  Official channel: <span className="text-brand-cream">{WHATSAPP_CHANNEL.name}</span>
                 </p>
                 <div className="mt-4">
-                  <Button variant="primary" size="md" disabled>
-                    WhatsApp Invite Link Pending
+                  <a
+                    href={WHATSAPP_CHANNEL.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center gap-2 border border-brand-gold bg-brand-gold px-6 py-3 font-heading text-xs font-semibold tracking-[0.2em] text-brand-black uppercase transition-colors hover:border-brand-cream hover:bg-brand-cream"
+                  >
+                    Follow WhatsApp Channel
                     <ExternalLink className="h-4 w-4" aria-hidden="true" />
-                  </Button>
+                  </a>
                 </div>
               </div>
             </article>
 
-            {/* Social Media Placeholders */}
+            {/* Social Media Channels */}
             <article className="border hairline-border bg-brand-charcoal/55 p-8 sm:p-10 lg:col-span-6">
               <p className="heading-eyebrow">Social Channels</p>
               <h2 className="heading-section mt-3 text-3xl text-brand-white">
                 Follow VATAR LIFESTYLE BY SOFT
               </h2>
               <p className="mt-3 font-body text-sm leading-relaxed text-brand-muted">
-                Verified social media profiles will be linked below as soon as official
-                handles are confirmed.
+                Connect with VATAR LIFESTYLE BY SOFT across our official social channels
+                for community highlights, announcements, and updates.
               </p>
 
               <ul className="mt-6 divide-y divide-brand-cream/10 border-t border-b hairline-border">
-                {SOCIAL_PLACEHOLDERS.map((item) => (
+                {SOCIAL_CHANNELS.map((item) => (
                   <li
-                    key={item.platform}
+                    key={item.id}
                     className="flex flex-col justify-between gap-1 py-4 sm:flex-row sm:items-center"
                   >
                     <span className="font-heading text-sm tracking-[0.16em] text-brand-cream uppercase">
                       {item.platform}
                     </span>
-                    <span className="font-body text-xs text-brand-muted">
-                      {item.status}
-                    </span>
+                    {item.href && item.handle ? (
+                      <a
+                        href={item.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 font-body text-xs font-medium tracking-[0.06em] text-brand-gold transition-colors hover:text-brand-cream"
+                      >
+                        {item.handle}
+                        <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                      </a>
+                    ) : (
+                      <span className="font-body text-xs text-brand-muted">
+                        {item.pendingStatus}
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>
