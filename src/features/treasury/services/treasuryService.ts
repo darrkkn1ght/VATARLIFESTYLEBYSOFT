@@ -33,6 +33,7 @@ export interface TreasuryLoginResult {
   token?: string;
   account?: TreasuryAccount;
   twoFactor?: boolean;
+  twoFactorRequired?: boolean;
   challenge?: string;
   method?: string;
   to?: string;

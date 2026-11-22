@@ -148,7 +148,7 @@ export function MemberTreasuryPage() {
     setStatusMessage(null);
     try {
       const res = await loginLagosLife(cleanUser, password);
-      if (res.ok && res.data.twoFactor && res.data.challenge) {
+      if (res.ok && (res.data.twoFactorRequired || res.data.twoFactor) && res.data.challenge) {
         setTwoFactorState({
           challenge: res.data.challenge,
           method: res.data.method,

@@ -208,13 +208,18 @@ export function WelcomeBonusInventoryCard({
     setNotice(null);
     try {
       const res = await loginLagosLife(clean, password);
-      if (res.ok && res.data.twoFactor && res.data.challenge) {
+      if (res.ok && (res.data.twoFactorRequired || res.data.twoFactor) && res.data.challenge) {
         setTwoFactorState({
           challenge: res.data.challenge,
           method: res.data.method,
           to: res.data.to,
         });
         setTwoFactorCode('');
+        setNotice(
+          res.data.method === 'email'
+            ? `Enter the 6-digit verification code sent to ${res.data.to || 'your email'} below.`
+            : 'Enter the 6-digit code from your authenticator app below.',
+        );
       } else if (res.ok && res.data.token && res.data.account) {
         localStorage.setItem(BONUS_TOKEN_KEY, res.data.token);
         setToken(res.data.token);
@@ -476,27 +481,50 @@ export function WelcomeBonusInventoryCard({
               </div>
 
               {twoFactorState ? (
-                <form onSubmit={handleVerify2FA} className="mt-4 flex flex-wrap items-center gap-2">
-                  <input
-                    type="text"
-                    value={twoFactorCode}
-                    onChange={(e) => setTwoFactorCode(e.target.value)}
-                    placeholder="6-digit 2FA code"
-                    className="flex-1 min-w-[160px] border hairline-border bg-brand-charcoal px-3 py-2 font-mono text-xs text-brand-white focus:border-brand-gold focus:outline-none"
-                  />
-                  {twoFactorState.method === 'email' && (
+                <form onSubmit={handleVerify2FA} className="mt-4 space-y-2.5">
+                  <p className="font-body text-xs text-brand-cream">
+                    {twoFactorState.method === 'email'
+                      ? `Type the 6-digit code sent to ${twoFactorState.to || 'your email'}:`
+                      : 'Type the 6-digit code from your authenticator app:'}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      autoFocus
+                      maxLength={8}
+                      value={twoFactorCode}
+                      onChange={(e) => setTwoFactorCode(e.target.value)}
+                      placeholder="6-digit 2FA code"
+                      className="flex-1 min-w-[160px] border border-brand-gold/60 bg-brand-charcoal px-3 py-2 font-mono text-sm tracking-[0.2em] text-brand-white focus:border-brand-gold focus:outline-none"
+                    />
+                    {twoFactorState.method === 'email' && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => void resendLagosLife2FA(twoFactorState.challenge)}
+                      >
+                        Resend
+                      </Button>
+                    )}
+                    <Button type="submit" size="sm" disabled={loading}>
+                      {loading ? 'Verifying...' : 'Verify 2FA'}
+                    </Button>
                     <Button
                       type="button"
                       variant="secondary"
                       size="sm"
-                      onClick={() => void resendLagosLife2FA(twoFactorState.challenge)}
+                      onClick={() => {
+                        setTwoFactorState(null);
+                        setTwoFactorCode('');
+                        setNotice(null);
+                      }}
                     >
-                      Resend
+                      Cancel
                     </Button>
-                  )}
-                  <Button type="submit" size="sm" disabled={loading}>
-                    Verify 2FA
-                  </Button>
+                  </div>
                 </form>
               ) : authTab === 'login' ? (
                 <form onSubmit={handleLogin} className="mt-4 grid gap-3 sm:grid-cols-3">
