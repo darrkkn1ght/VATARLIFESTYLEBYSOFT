@@ -8,15 +8,24 @@ export const ROUTES = {
   marketplace: '/marketplace',
   contact: '/contact',
 
-  // Authentication
+  // Authentication & Approval Status
   login: '/login',
   register: '/register',
+  updatePassword: '/update-password',
+  membershipStatus: '/membership-status',
 
   // Member
   dashboard: '/dashboard',
   dashboardProfile: '/dashboard/profile',
+  dashboardMembership: '/dashboard/membership',
+  dashboardAnnouncements: '/dashboard/announcements',
+  dashboardActivity: '/dashboard/activity',
   dashboardCompetitions: '/dashboard/competitions',
+  dashboardCompetitionDetail: '/dashboard/competitions/:id',
+  dashboardLeaderboard: '/dashboard/leaderboard',
   dashboardAchievements: '/dashboard/achievements',
+  dashboardMarketplace: '/dashboard/marketplace',
+  dashboardMarketplaceOrders: '/dashboard/marketplace/orders',
 
   // Administration
   admin: '/admin',

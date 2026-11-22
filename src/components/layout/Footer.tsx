@@ -22,33 +22,50 @@ export function Footer() {
   const currentYear = new Date().getFullYear();
 
   return (
-    <footer className="border-t hairline-border bg-brand-charcoal">
-      <PageContainer className="py-16">
+    <footer className="relative border-t hairline-border bg-brand-obsidian">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand-gold/40 to-transparent"
+      />
+      <PageContainer className="py-16 lg:py-20">
         <div className="grid gap-12 md:grid-cols-12">
-          <div className="md:col-span-6">
-            <Link to={ROUTES.home} className="inline-flex flex-col leading-none">
-              <span className="font-heading text-xl font-semibold tracking-[0.14em] text-brand-white uppercase">
-                VATAR LIFESTYLE
+          <div className="md:col-span-6 lg:col-span-5">
+            <Link to={ROUTES.home} className="inline-flex items-center gap-3">
+              <span
+                aria-hidden="true"
+                className="flex h-9 w-9 items-center justify-center border border-brand-gold/50 bg-brand-charcoal font-heading text-sm font-semibold text-brand-gold"
+              >
+                V
               </span>
-              <span className="mt-1 font-body text-[0.625rem] font-medium tracking-[0.34em] text-brand-gold uppercase">
-                BY SOFT
+              <span className="flex flex-col leading-none">
+                <span className="font-heading text-lg font-semibold tracking-[0.16em] text-brand-white uppercase">
+                  VATAR LIFESTYLE
+                </span>
+                <span className="mt-1 font-body text-[0.6rem] font-medium tracking-[0.36em] text-brand-gold uppercase">
+                  BY SOFT
+                </span>
               </span>
             </Link>
-            <p className="mt-5 max-w-md font-body text-sm leading-relaxed text-brand-cream/85">
+
+            <p className="mt-6 max-w-sm font-heading text-xs tracking-[0.2em] text-brand-cream uppercase">
               More Than A Game. A Lifestyle. A Community. A Legacy.
+            </p>
+            <p className="mt-3 max-w-md font-body text-sm leading-relaxed text-brand-muted">
+              A gaming and lifestyle community built around competitive standards,
+              shared identity, and lasting culture.
             </p>
           </div>
 
-          <div className="md:col-span-3">
-            <h2 className="font-heading text-xs font-medium tracking-[0.22em] text-brand-gold uppercase">
+          <div className="md:col-span-3 lg:col-span-3 lg:col-start-7">
+            <h2 className="font-heading text-xs font-medium tracking-[0.24em] text-brand-gold uppercase">
               Explore
             </h2>
-            <ul className="mt-4 space-y-2.5">
+            <ul className="mt-5 space-y-3">
               {EXPLORE_LINKS.map((item) => (
                 <li key={item.to}>
                   <Link
                     to={item.to}
-                    className="font-body text-sm text-brand-muted transition-colors hover:text-brand-white"
+                    className="font-body text-sm text-brand-muted transition-colors hover:text-brand-cream"
                   >
                     {item.label}
                   </Link>
@@ -57,16 +74,16 @@ export function Footer() {
             </ul>
           </div>
 
-          <div className="md:col-span-3">
-            <h2 className="font-heading text-xs font-medium tracking-[0.22em] text-brand-gold uppercase">
-              Access
+          <div className="md:col-span-3 lg:col-span-3">
+            <h2 className="font-heading text-xs font-medium tracking-[0.24em] text-brand-gold uppercase">
+              Member Access
             </h2>
-            <ul className="mt-4 space-y-2.5">
+            <ul className="mt-5 space-y-3">
               {PORTAL_LINKS.map((item) => (
                 <li key={item.to}>
                   <Link
                     to={item.to}
-                    className="font-body text-sm text-brand-muted transition-colors hover:text-brand-white"
+                    className="font-body text-sm text-brand-muted transition-colors hover:text-brand-cream"
                   >
                     {item.label}
                   </Link>
@@ -76,12 +93,12 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="mt-14 flex flex-col items-start justify-between gap-4 border-t hairline-border pt-8 sm:flex-row sm:items-center">
-          <p className="font-body text-xs tracking-[0.08em] text-brand-muted">
+        <div className="mt-16 flex flex-col items-start justify-between gap-4 border-t hairline-border pt-8 sm:flex-row sm:items-center">
+          <p className="font-body text-xs tracking-[0.06em] text-brand-muted">
             &copy; {currentYear} VATAR LIFESTYLE BY SOFT. All rights reserved.
           </p>
-          <p className="font-body text-xs tracking-[0.14em] text-brand-muted/80 uppercase">
-            Foundation Architecture
+          <p className="font-body text-[0.7rem] tracking-[0.2em] text-brand-gold/80 uppercase">
+            Lagos &bull; Global Community
           </p>
         </div>
       </PageContainer>

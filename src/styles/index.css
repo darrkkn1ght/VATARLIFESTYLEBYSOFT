@@ -2,12 +2,15 @@
 
 @theme {
   --color-brand-black: #080808;
+  --color-brand-obsidian: #0E0E0E;
   --color-brand-charcoal: #151515;
+  --color-brand-graphite: #1E1E1E;
   --color-brand-gold: #C6A15B;
-  --color-brand-gold-hover: #D4B26E;
+  --color-brand-gold-hover: #D8B772;
+  --color-brand-gold-deep: #8C6D32;
   --color-brand-cream: #F3EBDD;
   --color-brand-white: #FFFFFF;
-  --color-brand-muted: #A1A1A1;
+  --color-brand-muted: #9E9E9E;
 
   --font-heading: "Oswald", ui-sans-serif, system-ui, sans-serif;
   --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -15,13 +18,16 @@
 
 :root {
   --vatar-bg-primary: #080808;
+  --vatar-bg-obsidian: #0E0E0E;
   --vatar-bg-secondary: #151515;
   --vatar-accent-gold: #C6A15B;
+  --vatar-accent-gold-light: #D8B772;
   --vatar-accent-cream: #F3EBDD;
   --vatar-text-primary: #FFFFFF;
-  --vatar-text-muted: #A1A1A1;
-  --vatar-border-subtle: rgba(243, 235, 221, 0.12);
-  --vatar-border-gold: rgba(198, 161, 91, 0.35);
+  --vatar-text-muted: #9E9E9E;
+  --vatar-border-subtle: rgba(243, 235, 221, 0.11);
+  --vatar-border-strong: rgba(243, 235, 221, 0.2);
+  --vatar-border-gold: rgba(198, 161, 91, 0.32);
   --vatar-font-heading: "Oswald", ui-sans-serif, system-ui, sans-serif;
   --vatar-font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
 }
@@ -41,6 +47,7 @@
     min-height: 100vh;
     background-color: var(--vatar-bg-primary);
     color: var(--vatar-text-primary);
+    overflow-x: hidden;
   }
 
   h1,
@@ -64,40 +71,71 @@
     font-family: var(--vatar-font-heading);
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
-    line-height: 1.05;
+    letter-spacing: 0.03em;
+    line-height: 0.98;
   }
 
   .heading-section {
     font-family: var(--vatar-font-heading);
     font-weight: 500;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
-    line-height: 1.15;
+    letter-spacing: 0.05em;
+    line-height: 1.1;
   }
 
   .heading-eyebrow {
     font-family: var(--vatar-font-body);
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     font-weight: 500;
     text-transform: uppercase;
-    letter-spacing: 0.22em;
+    letter-spacing: 0.26em;
     color: var(--vatar-accent-gold);
   }
 
   .body-lead {
     font-family: var(--vatar-font-body);
-    font-size: 1.0625rem;
+    font-size: 1rem;
     line-height: 1.75;
     color: var(--vatar-text-muted);
   }
 
   .section-padding {
-    padding-top: 5rem;
-    padding-bottom: 5rem;
+    padding-top: 4.5rem;
+    padding-bottom: 4.5rem;
+  }
+
+  @media (min-width: 1024px) {
+    .section-padding {
+      padding-top: 6rem;
+      padding-bottom: 6rem;
+    }
   }
 
   .hairline-border {
     border-color: var(--vatar-border-subtle);
+  }
+
+  .gold-hairline {
+    border-color: var(--vatar-border-gold);
+  }
+
+  .surface-editorial {
+    background-color: var(--vatar-bg-secondary);
+    border: 1px solid var(--vatar-border-subtle);
+  }
+
+  .gold-text-gradient {
+    background: linear-gradient(135deg, #F3EBDD 0%, #C6A15B 55%, #9B7B3D 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .ambient-gold-glow {
+    background: radial-gradient(
+      ellipse 60% 50% at 50% 0%,
+      rgba(198, 161, 91, 0.14),
+      transparent 70%
+    );
   }
 }

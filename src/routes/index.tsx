@@ -1,17 +1,183 @@
+import { lazy, Suspense, type ComponentType, type ReactElement } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
 import { PortalLayout } from '@/components/layout/PortalLayout';
 import { PublicLayout } from '@/components/layout/PublicLayout';
-import { PlaceholderPage } from '@/components/shared/PlaceholderPage';
-import { HomePage } from '@/pages/public/HomePage';
-import { NotFoundPage } from '@/pages/public/NotFoundPage';
+import { PageLoadingFallback } from '@/components/shared/PageLoadingFallback';
+import {
+  RedirectIfAuthenticated,
+  RequireAdmin,
+  RequireApprovedMember,
+  RequireAuth,
+} from '@/features/auth/components/RouteGuards';
 import { ROUTES } from '@/routes/paths';
 import type { NavItem } from '@/types/navigation';
 
+// Public website pages (route-level code split)
+const HomePage = lazy(() =>
+  import('@/pages/public/HomePage').then((m) => ({ default: m.HomePage })),
+);
+const AboutPage = lazy(() =>
+  import('@/pages/public/AboutPage').then((m) => ({ default: m.AboutPage })),
+);
+const MembershipPage = lazy(() =>
+  import('@/pages/public/MembershipPage').then((m) => ({
+    default: m.MembershipPage,
+  })),
+);
+const CompetitionsPage = lazy(() =>
+  import('@/pages/public/CompetitionsPage').then((m) => ({
+    default: m.CompetitionsPage,
+  })),
+);
+const LeaderboardPage = lazy(() =>
+  import('@/pages/public/LeaderboardPage').then((m) => ({
+    default: m.LeaderboardPage,
+  })),
+);
+const MarketplacePage = lazy(() =>
+  import('@/pages/public/MarketplacePage').then((m) => ({
+    default: m.MarketplacePage,
+  })),
+);
+const ContactPage = lazy(() =>
+  import('@/pages/public/ContactPage').then((m) => ({
+    default: m.ContactPage,
+  })),
+);
+const NotFoundPage = lazy(() =>
+  import('@/pages/public/NotFoundPage').then((m) => ({
+    default: m.NotFoundPage,
+  })),
+);
+
+// Authentication & password recovery pages
+const LoginPage = lazy(() =>
+  import('@/pages/public/LoginPage').then((m) => ({ default: m.LoginPage })),
+);
+const RegisterPage = lazy(() =>
+  import('@/pages/public/RegisterPage').then((m) => ({
+    default: m.RegisterPage,
+  })),
+);
+const UpdatePasswordPage = lazy(() =>
+  import('@/pages/public/UpdatePasswordPage').then((m) => ({
+    default: m.UpdatePasswordPage,
+  })),
+);
+const MembershipStatusPage = lazy(() =>
+  import('@/pages/public/MembershipStatusPage').then((m) => ({
+    default: m.MembershipStatusPage,
+  })),
+);
+
+// Member Portal pages
+const MemberOverviewPage = lazy(() =>
+  import('@/pages/member/MemberOverviewPage').then((m) => ({
+    default: m.MemberOverviewPage,
+  })),
+);
+const MemberProfilePage = lazy(() =>
+  import('@/pages/member/MemberProfilePage').then((m) => ({
+    default: m.MemberProfilePage,
+  })),
+);
+const MemberMembershipPage = lazy(() =>
+  import('@/pages/member/MemberMembershipPage').then((m) => ({
+    default: m.MemberMembershipPage,
+  })),
+);
+const MemberAnnouncementsPage = lazy(() =>
+  import('@/pages/member/MemberAnnouncementsPage').then((m) => ({
+    default: m.MemberAnnouncementsPage,
+  })),
+);
+const MemberActivityPage = lazy(() =>
+  import('@/pages/member/MemberActivityPage').then((m) => ({
+    default: m.MemberActivityPage,
+  })),
+);
+const MemberCompetitionsPage = lazy(() =>
+  import('@/pages/member/MemberCompetitionsPage').then((m) => ({
+    default: m.MemberCompetitionsPage,
+  })),
+);
+const MemberCompetitionDetailPage = lazy(() =>
+  import('@/pages/member/MemberCompetitionDetailPage').then((m) => ({
+    default: m.MemberCompetitionDetailPage,
+  })),
+);
+const MemberLeaderboardPage = lazy(() =>
+  import('@/pages/member/MemberLeaderboardPage').then((m) => ({
+    default: m.MemberLeaderboardPage,
+  })),
+);
+const MemberAchievementsPage = lazy(() =>
+  import('@/pages/member/MemberAchievementsPage').then((m) => ({
+    default: m.MemberAchievementsPage,
+  })),
+);
+const MemberMarketplacePage = lazy(() =>
+  import('@/pages/member/MemberMarketplacePage').then((m) => ({
+    default: m.MemberMarketplacePage,
+  })),
+);
+const MemberOrdersPage = lazy(() =>
+  import('@/pages/member/MemberOrdersPage').then((m) => ({
+    default: m.MemberOrdersPage,
+  })),
+);
+
+// Admin Control Center pages
+const AdminOverviewPage = lazy(() =>
+  import('@/pages/admin/AdminOverviewPage').then((m) => ({
+    default: m.AdminOverviewPage,
+  })),
+);
+const AdminMembersPage = lazy(() =>
+  import('@/pages/admin/AdminMembersPage').then((m) => ({
+    default: m.AdminMembersPage,
+  })),
+);
+const AdminCompetitionsPage = lazy(() =>
+  import('@/pages/admin/AdminCompetitionsPage').then((m) => ({
+    default: m.AdminCompetitionsPage,
+  })),
+);
+const AdminLeaderboardPage = lazy(() =>
+  import('@/pages/admin/AdminLeaderboardPage').then((m) => ({
+    default: m.AdminLeaderboardPage,
+  })),
+);
+const AdminMarketplacePage = lazy(() =>
+  import('@/pages/admin/AdminMarketplacePage').then((m) => ({
+    default: m.AdminMarketplacePage,
+  })),
+);
+const AdminAnnouncementsPage = lazy(() =>
+  import('@/pages/admin/AdminAnnouncementsPage').then((m) => ({
+    default: m.AdminAnnouncementsPage,
+  })),
+);
+
+function withSuspense(Component: ComponentType): ReactElement {
+  return (
+    <Suspense fallback={<PageLoadingFallback />}>
+      <Component />
+    </Suspense>
+  );
+}
+
 const MEMBER_NAV_ITEMS: readonly NavItem[] = [
   { label: 'Overview', to: ROUTES.dashboard },
-  { label: 'Profile', to: ROUTES.dashboardProfile },
+  { label: 'My Profile', to: ROUTES.dashboardProfile },
+  { label: 'My Membership', to: ROUTES.dashboardMembership },
+  { label: 'Announcements', to: ROUTES.dashboardAnnouncements },
+  { label: 'Community Activity', to: ROUTES.dashboardActivity },
   { label: 'Competitions', to: ROUTES.dashboardCompetitions },
+  { label: 'Leaderboard', to: ROUTES.dashboardLeaderboard },
   { label: 'Achievements', to: ROUTES.dashboardAchievements },
+  { label: 'Marketplace', to: ROUTES.dashboardMarketplace },
+  { label: 'My Orders', to: ROUTES.dashboardMarketplaceOrders },
 ];
 
 const ADMIN_NAV_ITEMS: readonly NavItem[] = [
@@ -24,212 +190,89 @@ const ADMIN_NAV_ITEMS: readonly NavItem[] = [
 ];
 
 export const router = createBrowserRouter([
+  // Public website
   {
     element: <PublicLayout />,
     children: [
-      {
-        path: ROUTES.home,
-        element: <HomePage />,
-      },
-      {
-        path: ROUTES.about,
-        element: (
-          <PlaceholderPage
-            eyebrow="Public"
-            title="About"
-            description="The story, ethos, and vision behind VATAR LIFESTYLE BY SOFT will live here."
-          />
-        ),
-      },
-      {
-        path: ROUTES.membership,
-        element: (
-          <PlaceholderPage
-            eyebrow="Public"
-            title="Membership"
-            description="Membership tiers, benefits, and onboarding details will be introduced in an upcoming milestone."
-          />
-        ),
-      },
-      {
-        path: ROUTES.competitions,
-        element: (
-          <PlaceholderPage
-            eyebrow="Public"
-            title="Competitions"
-            description="Upcoming events, schedules, and competition formats will be published here."
-          />
-        ),
-      },
-      {
-        path: ROUTES.leaderboard,
-        element: (
-          <PlaceholderPage
-            eyebrow="Public"
-            title="Leaderboard"
-            description="Community rankings and seasonal standings will be presented here."
-          />
-        ),
-      },
-      {
-        path: ROUTES.marketplace,
-        element: (
-          <PlaceholderPage
-            eyebrow="Public"
-            title="Marketplace"
-            description="Curated pieces and official releases will be introduced in a future milestone."
-          />
-        ),
-      },
-      {
-        path: ROUTES.contact,
-        element: (
-          <PlaceholderPage
-            eyebrow="Public"
-            title="Contact"
-            description="Direct inquiries and community contact channels will be configured here."
-          />
-        ),
-      },
+      { path: ROUTES.home, element: withSuspense(HomePage) },
+      { path: ROUTES.about, element: withSuspense(AboutPage) },
+      { path: ROUTES.membership, element: withSuspense(MembershipPage) },
+      { path: ROUTES.competitions, element: withSuspense(CompetitionsPage) },
+      { path: ROUTES.leaderboard, element: withSuspense(LeaderboardPage) },
+      { path: ROUTES.marketplace, element: withSuspense(MarketplacePage) },
+      { path: ROUTES.contact, element: withSuspense(ContactPage) },
     ],
   },
+
+  // Authentication pages (redirect away if already signed in)
   {
-    element: <PortalLayout sectionLabel="Authentication" />,
+    element: <RedirectIfAuthenticated />,
+    children: [
+      { path: ROUTES.login, element: withSuspense(LoginPage) },
+      { path: ROUTES.register, element: withSuspense(RegisterPage) },
+    ],
+  },
+
+  // Password recovery completion route
+  {
+    path: ROUTES.updatePassword,
+    element: withSuspense(UpdatePasswordPage),
+  },
+
+  // Authenticated membership status page (accessible to pending/approved/rejected/suspended users)
+  {
+    element: <RequireAuth />,
     children: [
       {
-        path: ROUTES.login,
-        element: (
-          <PlaceholderPage
-            eyebrow="Authentication"
-            title="Sign In"
-            description="Member authentication is scheduled for a dedicated upcoming milestone."
-          />
-        ),
-      },
-      {
-        path: ROUTES.register,
-        element: (
-          <PlaceholderPage
-            eyebrow="Authentication"
-            title="Register"
-            description="Member registration and onboarding will be implemented in a future milestone."
-          />
-        ),
+        path: ROUTES.membershipStatus,
+        element: withSuspense(MembershipStatusPage),
       },
     ],
   },
+
+  // Protected Member Portal (requires authenticated + approved membership)
   {
-    element: <PortalLayout sectionLabel="Member Portal" navItems={MEMBER_NAV_ITEMS} />,
+    element: <RequireApprovedMember />,
     children: [
       {
-        path: ROUTES.dashboard,
-        element: (
-          <PlaceholderPage
-            eyebrow="Member"
-            title="Member Dashboard"
-            description="Your personal member overview will appear here once authentication and data services are connected."
-          />
-        ),
-      },
-      {
-        path: ROUTES.dashboardProfile,
-        element: (
-          <PlaceholderPage
-            eyebrow="Member"
-            title="Profile"
-            description="Member profile details and account preferences will be managed here."
-          />
-        ),
-      },
-      {
-        path: ROUTES.dashboardCompetitions,
-        element: (
-          <PlaceholderPage
-            eyebrow="Member"
-            title="My Competitions"
-            description="Registered competitions and event participation will be tracked here."
-          />
-        ),
-      },
-      {
-        path: ROUTES.dashboardAchievements,
-        element: (
-          <PlaceholderPage
-            eyebrow="Member"
-            title="Achievements"
-            description="Verified milestones and member honors will be displayed here."
-          />
-        ),
+        element: <PortalLayout sectionLabel="Member Portal" navItems={MEMBER_NAV_ITEMS} />,
+        children: [
+          { path: ROUTES.dashboard, element: withSuspense(MemberOverviewPage) },
+          { path: ROUTES.dashboardProfile, element: withSuspense(MemberProfilePage) },
+          { path: ROUTES.dashboardMembership, element: withSuspense(MemberMembershipPage) },
+          { path: ROUTES.dashboardAnnouncements, element: withSuspense(MemberAnnouncementsPage) },
+          { path: ROUTES.dashboardActivity, element: withSuspense(MemberActivityPage) },
+          { path: ROUTES.dashboardCompetitions, element: withSuspense(MemberCompetitionsPage) },
+          { path: ROUTES.dashboardCompetitionDetail, element: withSuspense(MemberCompetitionDetailPage) },
+          { path: ROUTES.dashboardLeaderboard, element: withSuspense(MemberLeaderboardPage) },
+          { path: ROUTES.dashboardAchievements, element: withSuspense(MemberAchievementsPage) },
+          { path: ROUTES.dashboardMarketplace, element: withSuspense(MemberMarketplacePage) },
+          { path: ROUTES.dashboardMarketplaceOrders, element: withSuspense(MemberOrdersPage) },
+        ],
       },
     ],
   },
+
+  // Protected Administration routes (requires database-backed active admin or super_admin role)
   {
-    element: <PortalLayout sectionLabel="Administration" navItems={ADMIN_NAV_ITEMS} />,
+    element: <RequireAdmin />,
     children: [
       {
-        path: ROUTES.admin,
-        element: (
-          <PlaceholderPage
-            eyebrow="Administration"
-            title="Admin Overview"
-            description="Administrative controls and operational summaries will be built in a future milestone."
-          />
-        ),
-      },
-      {
-        path: ROUTES.adminMembers,
-        element: (
-          <PlaceholderPage
-            eyebrow="Administration"
-            title="Manage Members"
-            description="Member directory and membership management tools will live here."
-          />
-        ),
-      },
-      {
-        path: ROUTES.adminCompetitions,
-        element: (
-          <PlaceholderPage
-            eyebrow="Administration"
-            title="Manage Competitions"
-            description="Competition creation, scheduling, and oversight will live here."
-          />
-        ),
-      },
-      {
-        path: ROUTES.adminLeaderboard,
-        element: (
-          <PlaceholderPage
-            eyebrow="Administration"
-            title="Manage Leaderboard"
-            description="Standings administration and ranking updates will live here."
-          />
-        ),
-      },
-      {
-        path: ROUTES.adminMarketplace,
-        element: (
-          <PlaceholderPage
-            eyebrow="Administration"
-            title="Manage Marketplace"
-            description="Catalog and release administration will be introduced in a future milestone."
-          />
-        ),
-      },
-      {
-        path: ROUTES.adminAnnouncements,
-        element: (
-          <PlaceholderPage
-            eyebrow="Administration"
-            title="Announcements"
-            description="Community announcements and communications management will live here."
-          />
-        ),
+        element: <PortalLayout sectionLabel="Administration" navItems={ADMIN_NAV_ITEMS} />,
+        children: [
+          { path: ROUTES.admin, element: withSuspense(AdminOverviewPage) },
+          { path: ROUTES.adminMembers, element: withSuspense(AdminMembersPage) },
+          { path: ROUTES.adminCompetitions, element: withSuspense(AdminCompetitionsPage) },
+          { path: ROUTES.adminLeaderboard, element: withSuspense(AdminLeaderboardPage) },
+          { path: ROUTES.adminMarketplace, element: withSuspense(AdminMarketplacePage) },
+          { path: ROUTES.adminAnnouncements, element: withSuspense(AdminAnnouncementsPage) },
+        ],
       },
     ],
   },
+
   {
     path: '*',
-    element: <NotFoundPage />,
+    element: withSuspense(NotFoundPage),
   },
 ]);
