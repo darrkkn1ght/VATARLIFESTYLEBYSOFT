@@ -8,6 +8,7 @@ import {
   Clock,
   Loader2,
   RefreshCw,
+  Send,
   X,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -506,6 +507,28 @@ export function MemberOrdersPage() {
                           Mark In Progress
                         </Button>
                       )}
+
+                      {!isBuyer &&
+                        (order.status === 'accepted' ||
+                          order.status === 'in_progress') &&
+                        (order.recipient_lagos_life_username ||
+                          order.requested_game_currency_amount) && (
+                          <Button
+                            to={`${ROUTES.dashboardTreasury}?${new URLSearchParams({
+                              ...(order.recipient_lagos_life_username
+                                ? { to: order.recipient_lagos_life_username }
+                                : {}),
+                              ...(order.requested_game_currency_amount
+                                ? { amount: String(order.requested_game_currency_amount) }
+                                : {}),
+                            }).toString()}`}
+                            variant="secondary"
+                            size="sm"
+                          >
+                            <Send className="h-3.5 w-3.5 text-brand-gold" aria-hidden="true" />
+                            Send via MoneySender
+                          </Button>
+                        )}
 
                       {!isBuyer &&
                         (order.status === 'accepted' ||

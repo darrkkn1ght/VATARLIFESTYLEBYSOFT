@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Clock,
   Copy,
@@ -54,6 +55,7 @@ const BULK_CHIPS = [
 const DONATE_CHIPS = ['10B', '50B', '100B', '500B'];
 
 export function MemberTreasuryPage() {
+  const [searchParams] = useSearchParams();
   const [token, setToken] = useState<string | null>(() =>
     localStorage.getItem(TREASURY_TOKEN_STORAGE_KEY),
   );
@@ -82,8 +84,8 @@ export function MemberTreasuryPage() {
 
   // Transfer mode state
   const [mode, setMode] = useState<'single' | 'batch'>('single');
-  const [recipient, setRecipient] = useState('');
-  const [singleAmount, setSingleAmount] = useState('');
+  const [recipient, setRecipient] = useState(() => searchParams.get('to') || '');
+  const [singleAmount, setSingleAmount] = useState(() => searchParams.get('amount') || '');
   const [singleSchedule, setSingleSchedule] = useState('');
   const [singlePin, setSinglePin] = useState('');
   const [bulkRecipients, setBulkRecipients] = useState('');

@@ -7,6 +7,7 @@ import {
   Loader2,
   Plus,
   RefreshCw,
+  Send,
   ShoppingBag,
   Store,
   User,
@@ -245,6 +246,10 @@ export function MemberMarketplacePage() {
                   aria-hidden="true"
                 />
                 Refresh
+              </Button>
+              <Button to={ROUTES.dashboardTreasury} variant="secondary" size="sm">
+                <Send className="h-3.5 w-3.5 text-brand-gold" aria-hidden="true" />
+                Money Sender
               </Button>
               <Button to={ROUTES.dashboardMarketplaceOrders} variant="secondary" size="sm">
                 <ClipboardList className="h-3.5 w-3.5" aria-hidden="true" />
