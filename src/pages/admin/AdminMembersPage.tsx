@@ -21,6 +21,10 @@ import {
 } from '@/features/administration/components/MembershipStatusBadge';
 import { ReviewConfirmationModal } from '@/features/administration/components/ReviewConfirmationModal';
 import {
+  dispatchWelcomeBonusOnApproval,
+  WelcomeBonusInventoryCard,
+} from '@/features/administration/components/WelcomeBonusInventoryCard';
+import {
   fetchAdminMembers,
   reviewMemberApplication,
 } from '@/features/administration/services/adminService';
@@ -96,6 +100,7 @@ export function AdminMembersPage() {
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [bonusRefreshSignal, setBonusRefreshSignal] = useState(0);
 
   const loadMembers = useCallback(async (showFullLoader: boolean) => {
     if (showFullLoader) {
@@ -193,8 +198,20 @@ export function AdminMembersPage() {
         ? `@${pendingAction.member.profile.username}`
         : pendingAction.member.profile?.full_name ?? 'Member';
 
+    let bonusNote = '';
+    if (pendingAction.status === 'approved') {
+      const bonusRes = await dispatchWelcomeBonusOnApproval({
+        lagosLifeUsername: pendingAction.member.profile?.lagos_life_username,
+        memberLabel,
+      });
+      if (bonusRes.message) {
+        bonusNote = ` ${bonusRes.message}`;
+      }
+      setBonusRefreshSignal((n) => n + 1);
+    }
+
     setFeedbackMessage(
-      `Updated ${memberLabel} to ${pendingAction.status.toUpperCase()} and recorded an audit entry.`,
+      `Updated ${memberLabel} to ${pendingAction.status.toUpperCase()} and recorded an audit entry.${bonusNote}`,
     );
     setPendingAction(null);
     await loadMembers(false);
@@ -251,6 +268,8 @@ export function AdminMembersPage() {
       </section>
 
       <PageContainer className="py-10 sm:py-14">
+        <WelcomeBonusInventoryCard refreshSignal={bonusRefreshSignal} />
+
         {feedbackMessage && (
           <div
             role="status"
