@@ -11,6 +11,7 @@ import {
   Store,
   Trophy,
   User,
+  Wallet,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { PageContainer } from '@/components/layout/PageContainer';
@@ -69,6 +70,12 @@ const QUICK_LINKS = [
     description: 'Browse moderated community listings and manage orders.',
     to: ROUTES.dashboardMarketplace,
     icon: Store,
+  },
+  {
+    title: 'VATAR Treasury',
+    description: 'Automated LagosLife single, bulk, and scheduled money transfers.',
+    to: ROUTES.dashboardTreasury,
+    icon: Wallet,
   },
 ] as const;
 

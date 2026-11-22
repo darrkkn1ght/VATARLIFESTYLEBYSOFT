@@ -126,6 +126,11 @@ const MemberOrdersPage = lazy(() =>
     default: m.MemberOrdersPage,
   })),
 );
+const MemberTreasuryPage = lazy(() =>
+  import('@/pages/member/MemberTreasuryPage').then((m) => ({
+    default: m.MemberTreasuryPage,
+  })),
+);
 
 // Admin Control Center pages
 const AdminOverviewPage = lazy(() =>
@@ -178,6 +183,7 @@ const MEMBER_NAV_ITEMS: readonly NavItem[] = [
   { label: 'Achievements', to: ROUTES.dashboardAchievements },
   { label: 'Marketplace', to: ROUTES.dashboardMarketplace },
   { label: 'My Orders', to: ROUTES.dashboardMarketplaceOrders },
+  { label: 'Treasury', to: ROUTES.dashboardTreasury },
 ];
 
 const ADMIN_NAV_ITEMS: readonly NavItem[] = [
@@ -248,6 +254,7 @@ export const router = createBrowserRouter([
           { path: ROUTES.dashboardAchievements, element: withSuspense(MemberAchievementsPage) },
           { path: ROUTES.dashboardMarketplace, element: withSuspense(MemberMarketplacePage) },
           { path: ROUTES.dashboardMarketplaceOrders, element: withSuspense(MemberOrdersPage) },
+          { path: ROUTES.dashboardTreasury, element: withSuspense(MemberTreasuryPage) },
         ],
       },
     ],
