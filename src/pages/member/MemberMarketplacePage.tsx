@@ -24,6 +24,7 @@ import {
   ListingModerationBadge,
 } from '@/features/marketplace/components/MarketplaceBadges';
 import { MarketplaceSafetyBanner } from '@/features/marketplace/components/MarketplaceSafetyBanner';
+import { MemberMoneyPacksSection } from '@/features/marketplace/components/MemberMoneyPacksSection';
 import {
   createListing,
   createPurchaseRequest,
@@ -273,6 +274,8 @@ export function MemberMarketplacePage() {
       </section>
 
       <PageContainer className="space-y-8 py-10 sm:py-14">
+        <MemberMoneyPacksSection />
+
         <MarketplaceSafetyBanner />
 
         {feedback && (

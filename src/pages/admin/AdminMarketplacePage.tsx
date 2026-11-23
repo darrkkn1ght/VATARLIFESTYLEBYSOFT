@@ -22,6 +22,7 @@ import {
   ListingModerationBadge,
   OrderStatusBadge,
 } from '@/features/marketplace/components/MarketplaceBadges';
+import { AdminMoneyPacksPanel } from '@/features/marketplace/components/AdminMoneyPacksPanel';
 import {
   fetchAdminMarketplaceOversight,
   fetchOrderEvents,
@@ -64,9 +65,9 @@ function formatDateTime(iso: string | null): string {
 }
 
 export function AdminMarketplacePage() {
-  const [activeTab, setActiveTab] = useState<'listings' | 'disputes' | 'orders'>(
-    'listings',
-  );
+  const [activeTab, setActiveTab] = useState<
+    'money_packs' | 'listings' | 'disputes' | 'orders'
+  >('money_packs');
   const [listings, setListings] = useState<MarketplaceListingWithSellerRow[]>([]);
   const [disputes, setDisputes] = useState<AdminDisputeView[]>([]);
   const [orders, setOrders] = useState<AdminOrderView[]>([]);
@@ -296,6 +297,18 @@ export function AdminMarketplacePage() {
         <div className="flex flex-wrap gap-2 border-b hairline-border pb-5">
           <button
             type="button"
+            onClick={() => setActiveTab('money_packs')}
+            className={cn(
+              'cursor-pointer border px-4 py-2.5 font-heading text-xs tracking-[0.18em] uppercase',
+              activeTab === 'money_packs'
+                ? 'border-brand-gold bg-brand-gold text-brand-black'
+                : 'hairline-border bg-brand-charcoal text-brand-muted hover:text-brand-white',
+            )}
+          >
+            Money Packs &amp; Senders
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab('listings')}
             className={cn(
               'cursor-pointer border px-4 py-2.5 font-heading text-xs tracking-[0.18em] uppercase',
@@ -331,6 +344,9 @@ export function AdminMarketplacePage() {
             Orders ({orders.length})
           </button>
         </div>
+
+        {/* TAB 0: OFFICIAL MONEY PACKS & MULTI-PIPELINE SENDERS */}
+        {activeTab === 'money_packs' && <AdminMoneyPacksPanel />}
 
         {/* TAB 1: LISTINGS MODERATION */}
         {activeTab === 'listings' && (

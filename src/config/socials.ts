@@ -1,5 +1,5 @@
 export interface SocialChannel {
-  id: 'x' | 'instagram' | 'tiktok' | 'youtube';
+  id: 'x' | 'telegram' | 'instagram' | 'tiktok' | 'youtube';
   platform: string;
   handle: string | null;
   href: string | null;
@@ -19,6 +19,13 @@ export const SOCIAL_CHANNELS: readonly SocialChannel[] = [
     handle: '@softcollins5',
     href: 'https://x.com/softcollins5',
     pendingStatus: 'Official handle pending publication',
+  },
+  {
+    id: 'telegram',
+    platform: 'Telegram',
+    handle: '@VatarLifeStyleBySoft',
+    href: 'https://t.me/VatarLifeStyleBySoft',
+    pendingStatus: 'Official channel pending publication',
   },
   {
     id: 'instagram',

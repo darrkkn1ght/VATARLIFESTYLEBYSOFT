@@ -321,6 +321,61 @@ export type MemberAnnouncementRow = {
   created_at: string;
 };
 
+export type MoneyPackCode =
+  | '100B'
+  | '200B'
+  | '300B'
+  | '400B'
+  | '500B'
+  | '600B'
+  | '700B'
+  | '800B'
+  | '900B'
+  | '1T';
+
+export type MoneyPackOrderStatus =
+  | 'awaiting_payment'
+  | 'payment_submitted'
+  | 'sending'
+  | 'completed'
+  | 'rejected'
+  | 'cancelled';
+
+export type MoneyPackSettingsRecord = {
+  id: number;
+  bank_name: string;
+  account_number: string;
+  account_name: string;
+  whatsapp_number: string;
+  telegram_url: string;
+  is_enabled: boolean;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type MoneyPackOrderRecord = {
+  id: string;
+  order_code: string;
+  buyer_id: string;
+  lagos_life_username: string;
+  pack_code: MoneyPackCode;
+  pack_label: string;
+  quantity: number;
+  in_game_amount: number;
+  unit_price_ngn: number;
+  total_price_ngn: number;
+  status: MoneyPackOrderStatus;
+  buyer_note: string | null;
+  admin_note: string | null;
+  payment_submitted_at: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -544,6 +599,18 @@ export type Database = {
         Update: never;
         Relationships: [];
       };
+      money_pack_settings: {
+        Row: MoneyPackSettingsRecord;
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      money_pack_orders: {
+        Row: MoneyPackOrderRecord;
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -702,6 +769,46 @@ export type Database = {
         Returns: boolean;
       };
       get_unread_announcements_count: {
+        Args: Record<string, never>;
+        Returns: number;
+      };
+      create_money_pack_order: {
+        Args: {
+          p_pack_code: MoneyPackCode;
+          p_quantity?: number;
+          p_lagos_life_username?: string | null;
+          p_buyer_note?: string | null;
+        };
+        Returns: MoneyPackOrderRecord;
+      };
+      mark_money_pack_payment_submitted: {
+        Args: { p_order_id: string };
+        Returns: MoneyPackOrderRecord;
+      };
+      cancel_money_pack_order: {
+        Args: { p_order_id: string };
+        Returns: MoneyPackOrderRecord;
+      };
+      admin_update_money_pack_order: {
+        Args: {
+          p_order_id: string;
+          p_new_status: 'sending' | 'completed' | 'rejected';
+          p_admin_note?: string | null;
+        };
+        Returns: MoneyPackOrderRecord;
+      };
+      admin_update_money_pack_settings: {
+        Args: {
+          p_bank_name: string;
+          p_account_number: string;
+          p_account_name: string;
+          p_whatsapp_number: string;
+          p_telegram_url?: string;
+          p_is_enabled?: boolean;
+        };
+        Returns: MoneyPackSettingsRecord;
+      };
+      get_pending_money_pack_count: {
         Args: Record<string, never>;
         Returns: number;
       };

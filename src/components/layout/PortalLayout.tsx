@@ -4,6 +4,7 @@ import { ArrowLeft, LogOut } from 'lucide-react';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { fetchUnreadAnnouncementsCount } from '@/features/announcements/services/announcementService';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { fetchPendingMoneyPackCount } from '@/features/marketplace/services/moneyPackService';
 import { cn } from '@/lib/utilities/cn';
 import { ROUTES } from '@/routes/paths';
 import type { NavItem } from '@/types/navigation';
@@ -14,12 +15,16 @@ interface PortalLayoutProps {
 }
 
 export function PortalLayout({ sectionLabel, navItems }: PortalLayoutProps) {
-  const { isAuthenticated, isApprovedMember, profile, signOut } = useAuth();
+  const { isAuthenticated, isApprovedMember, isAdmin, profile, signOut } = useAuth();
   const navigate = useNavigate();
   const [unreadAnnouncements, setUnreadAnnouncements] = useState(0);
+  const [pendingMoneyPacks, setPendingMoneyPacks] = useState(0);
 
   const hasMemberAnnouncementsLink = Boolean(
     navItems?.some((item) => item.to === ROUTES.dashboardAnnouncements),
+  );
+  const hasAdminMarketplaceLink = Boolean(
+    navItems?.some((item) => item.to === ROUTES.adminMarketplace),
   );
 
   useEffect(() => {
@@ -44,6 +49,31 @@ export function PortalLayout({ sectionLabel, navItems }: PortalLayoutProps) {
       window.removeEventListener('vatar:announcements-updated', loadCount);
     };
   }, [isAuthenticated, isApprovedMember, hasMemberAnnouncementsLink]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !isAdmin || !hasAdminMarketplaceLink) {
+      setPendingMoneyPacks(0);
+      return;
+    }
+
+    let active = true;
+    const loadPending = () => {
+      void fetchPendingMoneyPackCount().then((res) => {
+        if (active && !res.error) {
+          setPendingMoneyPacks(res.count);
+        }
+      });
+    };
+
+    loadPending();
+    const timer = window.setInterval(loadPending, 30_000);
+    window.addEventListener('vatar:money-packs-updated', loadPending);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener('vatar:money-packs-updated', loadPending);
+    };
+  }, [isAuthenticated, isAdmin, hasAdminMarketplaceLink]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -106,6 +136,9 @@ export function PortalLayout({ sectionLabel, navItems }: PortalLayoutProps) {
                   const showUnread =
                     item.to === ROUTES.dashboardAnnouncements &&
                     unreadAnnouncements > 0;
+                  const showPendingPacks =
+                    item.to === ROUTES.adminMarketplace &&
+                    pendingMoneyPacks > 0;
                   return (
                     <NavLink
                       key={item.to}
@@ -124,6 +157,14 @@ export function PortalLayout({ sectionLabel, navItems }: PortalLayoutProps) {
                       {showUnread && (
                         <span className="inline-flex h-4 min-w-4 items-center justify-center bg-brand-gold px-1 font-heading text-[0.62rem] font-semibold text-brand-black">
                           {unreadAnnouncements}
+                        </span>
+                      )}
+                      {showPendingPacks && (
+                        <span
+                          title={`${pendingMoneyPacks} pending money pack order(s)`}
+                          className="inline-flex h-4 min-w-4 items-center justify-center bg-brand-gold px-1 font-heading text-[0.62rem] font-semibold text-brand-black"
+                        >
+                          {pendingMoneyPacks}
                         </span>
                       )}
                     </NavLink>
