@@ -3,6 +3,7 @@ import { createBrowserRouter } from 'react-router-dom';
 import { PortalLayout } from '@/components/layout/PortalLayout';
 import { PublicLayout } from '@/components/layout/PublicLayout';
 import { PageLoadingFallback } from '@/components/shared/PageLoadingFallback';
+import { RouteErrorFallback } from '@/components/shared/RouteErrorFallback';
 import {
   RedirectIfAuthenticated,
   RequireAdmin,
@@ -196,90 +197,95 @@ const ADMIN_NAV_ITEMS: readonly NavItem[] = [
 ];
 
 export const router = createBrowserRouter([
-  // Public website
   {
-    element: <PublicLayout />,
+    errorElement: <RouteErrorFallback />,
     children: [
-      { path: ROUTES.home, element: withSuspense(HomePage) },
-      { path: ROUTES.about, element: withSuspense(AboutPage) },
-      { path: ROUTES.membership, element: withSuspense(MembershipPage) },
-      { path: ROUTES.competitions, element: withSuspense(CompetitionsPage) },
-      { path: ROUTES.leaderboard, element: withSuspense(LeaderboardPage) },
-      { path: ROUTES.marketplace, element: withSuspense(MarketplacePage) },
-      { path: ROUTES.contact, element: withSuspense(ContactPage) },
-    ],
-  },
-
-  // Authentication pages (redirect away if already signed in)
-  {
-    element: <RedirectIfAuthenticated />,
-    children: [
-      { path: ROUTES.login, element: withSuspense(LoginPage) },
-      { path: ROUTES.register, element: withSuspense(RegisterPage) },
-    ],
-  },
-
-  // Password recovery completion route
-  {
-    path: ROUTES.updatePassword,
-    element: withSuspense(UpdatePasswordPage),
-  },
-
-  // Authenticated membership status page (accessible to pending/approved/rejected/suspended users)
-  {
-    element: <RequireAuth />,
-    children: [
+      // Public website
       {
-        path: ROUTES.membershipStatus,
-        element: withSuspense(MembershipStatusPage),
-      },
-    ],
-  },
-
-  // Protected Member Portal (requires authenticated + approved membership)
-  {
-    element: <RequireApprovedMember />,
-    children: [
-      {
-        element: <PortalLayout sectionLabel="Member Portal" navItems={MEMBER_NAV_ITEMS} />,
+        element: <PublicLayout />,
         children: [
-          { path: ROUTES.dashboard, element: withSuspense(MemberOverviewPage) },
-          { path: ROUTES.dashboardProfile, element: withSuspense(MemberProfilePage) },
-          { path: ROUTES.dashboardMembership, element: withSuspense(MemberMembershipPage) },
-          { path: ROUTES.dashboardAnnouncements, element: withSuspense(MemberAnnouncementsPage) },
-          { path: ROUTES.dashboardActivity, element: withSuspense(MemberActivityPage) },
-          { path: ROUTES.dashboardCompetitions, element: withSuspense(MemberCompetitionsPage) },
-          { path: ROUTES.dashboardCompetitionDetail, element: withSuspense(MemberCompetitionDetailPage) },
-          { path: ROUTES.dashboardLeaderboard, element: withSuspense(MemberLeaderboardPage) },
-          { path: ROUTES.dashboardAchievements, element: withSuspense(MemberAchievementsPage) },
-          { path: ROUTES.dashboardMarketplace, element: withSuspense(MemberMarketplacePage) },
-          { path: ROUTES.dashboardMarketplaceOrders, element: withSuspense(MemberOrdersPage) },
-          { path: ROUTES.dashboardTreasury, element: withSuspense(MemberTreasuryPage) },
+          { path: ROUTES.home, element: withSuspense(HomePage) },
+          { path: ROUTES.about, element: withSuspense(AboutPage) },
+          { path: ROUTES.membership, element: withSuspense(MembershipPage) },
+          { path: ROUTES.competitions, element: withSuspense(CompetitionsPage) },
+          { path: ROUTES.leaderboard, element: withSuspense(LeaderboardPage) },
+          { path: ROUTES.marketplace, element: withSuspense(MarketplacePage) },
+          { path: ROUTES.contact, element: withSuspense(ContactPage) },
         ],
       },
-    ],
-  },
 
-  // Protected Administration routes (requires database-backed active admin or super_admin role)
-  {
-    element: <RequireAdmin />,
-    children: [
+      // Authentication pages (redirect away if already signed in)
       {
-        element: <PortalLayout sectionLabel="Administration" navItems={ADMIN_NAV_ITEMS} />,
+        element: <RedirectIfAuthenticated />,
         children: [
-          { path: ROUTES.admin, element: withSuspense(AdminOverviewPage) },
-          { path: ROUTES.adminMembers, element: withSuspense(AdminMembersPage) },
-          { path: ROUTES.adminCompetitions, element: withSuspense(AdminCompetitionsPage) },
-          { path: ROUTES.adminLeaderboard, element: withSuspense(AdminLeaderboardPage) },
-          { path: ROUTES.adminMarketplace, element: withSuspense(AdminMarketplacePage) },
-          { path: ROUTES.adminAnnouncements, element: withSuspense(AdminAnnouncementsPage) },
+          { path: ROUTES.login, element: withSuspense(LoginPage) },
+          { path: ROUTES.register, element: withSuspense(RegisterPage) },
         ],
       },
-    ],
-  },
 
-  {
-    path: '*',
-    element: withSuspense(NotFoundPage),
+      // Password recovery completion route
+      {
+        path: ROUTES.updatePassword,
+        element: withSuspense(UpdatePasswordPage),
+      },
+
+      // Authenticated membership status page (accessible to pending/approved/rejected/suspended users)
+      {
+        element: <RequireAuth />,
+        children: [
+          {
+            path: ROUTES.membershipStatus,
+            element: withSuspense(MembershipStatusPage),
+          },
+        ],
+      },
+
+      // Protected Member Portal (requires authenticated + approved membership)
+      {
+        element: <RequireApprovedMember />,
+        children: [
+          {
+            element: <PortalLayout sectionLabel="Member Portal" navItems={MEMBER_NAV_ITEMS} />,
+            children: [
+              { path: ROUTES.dashboard, element: withSuspense(MemberOverviewPage) },
+              { path: ROUTES.dashboardProfile, element: withSuspense(MemberProfilePage) },
+              { path: ROUTES.dashboardMembership, element: withSuspense(MemberMembershipPage) },
+              { path: ROUTES.dashboardAnnouncements, element: withSuspense(MemberAnnouncementsPage) },
+              { path: ROUTES.dashboardActivity, element: withSuspense(MemberActivityPage) },
+              { path: ROUTES.dashboardCompetitions, element: withSuspense(MemberCompetitionsPage) },
+              { path: ROUTES.dashboardCompetitionDetail, element: withSuspense(MemberCompetitionDetailPage) },
+              { path: ROUTES.dashboardLeaderboard, element: withSuspense(MemberLeaderboardPage) },
+              { path: ROUTES.dashboardAchievements, element: withSuspense(MemberAchievementsPage) },
+              { path: ROUTES.dashboardMarketplace, element: withSuspense(MemberMarketplacePage) },
+              { path: ROUTES.dashboardMarketplaceOrders, element: withSuspense(MemberOrdersPage) },
+              { path: ROUTES.dashboardTreasury, element: withSuspense(MemberTreasuryPage) },
+            ],
+          },
+        ],
+      },
+
+      // Protected Administration routes (requires database-backed active admin or super_admin role)
+      {
+        element: <RequireAdmin />,
+        children: [
+          {
+            element: <PortalLayout sectionLabel="Administration" navItems={ADMIN_NAV_ITEMS} />,
+            children: [
+              { path: ROUTES.admin, element: withSuspense(AdminOverviewPage) },
+              { path: ROUTES.adminMembers, element: withSuspense(AdminMembersPage) },
+              { path: ROUTES.adminCompetitions, element: withSuspense(AdminCompetitionsPage) },
+              { path: ROUTES.adminLeaderboard, element: withSuspense(AdminLeaderboardPage) },
+              { path: ROUTES.adminMarketplace, element: withSuspense(AdminMarketplacePage) },
+              { path: ROUTES.adminAnnouncements, element: withSuspense(AdminAnnouncementsPage) },
+            ],
+          },
+        ],
+      },
+
+      {
+        path: '*',
+        element: withSuspense(NotFoundPage),
+      },
+    ],
   },
 ]);
