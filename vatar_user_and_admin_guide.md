@@ -3,6 +3,7 @@
 **Live Website:** https://vatar-lifestyle-by-soft.onrender.com  
 **Official Community & Social Channels:**
 - **WhatsApp Channel (`LAGOS LIFEstyle by SOFT`):** https://whatsapp.com/channel/0029Vb9hC8u23n3ep6cTWv2B
+- **Telegram Channel (`@VatarLifeStyleBySoft`):** https://t.me/VatarLifeStyleBySoft
 - **X (Twitter):** https://x.com/softcollins5 (`@softcollins5`)
 - **YouTube:** https://youtube.com/@soft_lagos_lifestyle (`@soft_lagos_lifestyle`)
 
@@ -80,13 +81,31 @@
 - Visit `/dashboard/competitions` to see open competitions and click into any competition (`/dashboard/competitions/:id`) to read rules and register.
 - Once admins publish results, standings appear on `/dashboard/leaderboard` and any podium/award placements automatically populate `/dashboard/achievements`.
 
-### D. Marketplace & Manual-Fulfilment Orders
+### D. Marketplace, Official Money Packs & Manual-Fulfilment Orders
+
+#### Official VATAR Money Packs (By Soft) — Top of `/dashboard/marketplace`
+Members can buy LagosLife in-game currency directly from the owner in 2 taps:
+
+| Pack | Price | Pack | Price |
+| :--- | :--- | :--- | :--- |
+| **100B** | ₦400 | **600B** | ₦1,800 |
+| **200B** | ₦700 | **700B** | ₦2,000 |
+| **300B** | ₦1,000 | **800B** | ₦2,400 |
+| **400B** | ₦1,300 | **900B** | ₦2,600 |
+| **500B** | ₦1,500 | **1T** | ₦2,900 |
+
+1. Tap a pack (plus optional `1× / 2× / 3× / 5×` quantity multiplier). Your **LagosLife Username** auto-fills from your profile.
+2. Click **Order** to generate an Order Reference (e.g., `VTR-4821`) and view the official **Bank Name, Account Name, and Account Number** (with a 1-tap **Copy** button).
+3. After paying, tap **"I've Paid — Send Receipt on WhatsApp"**. This marks your order as **Receipt Sent** and opens WhatsApp with a pre-filled message containing your Order Ref, Pack, Amount, and LagosLife Username so you just attach your receipt and hit send.
+4. Track live status (`Awaiting Payment` → `Receipt Sent` → `Sending Funds` → `Completed`) right below the pack selector.
+
+#### Community Member-to-Member Listings
 - **Buying (`/dashboard/marketplace`):** Browse approved listings, select quantity, and place an order. Inventory is reserved automatically when your order is placed.
 - **Selling (`/dashboard/marketplace`):** Click to create a new listing. All new listings start in **Pending Moderation** and become visible only after an admin approves them.
   > [!NOTE]
   > Editing the title, description, price, or details of an already-approved listing automatically returns it to moderation for re-approval to protect buyers.
 - **Managing Orders (`/dashboard/marketplace/orders`):**
-  - All marketplace trades use **manual fulfilment** (sellers deliver directly in-game / off-platform and update status on the order).
+  - All community trades use **manual fulfilment** (sellers deliver directly in-game / off-platform and update status on the order).
   - Buyers and sellers can track every status transition, cancel eligible orders, confirm completion, or open a **Dispute** if something goes wrong (which locks the order for Admin review).
 
 ### E. Using the Treasury Hub (`/dashboard/treasury`)
@@ -141,10 +160,20 @@ If you forget your VATAR password, click **Forgot Password** on `/login`, enter 
    - Select a competition, record or update member scores/ranks, and toggle **Publish** when official standings are ready.
    - Only **published** results appear on the public/member leaderboards and unlock member achievements.
 
-### D. Moderating the Marketplace (`/admin/marketplace`)
-1. **Listings Tab:** Review incoming member listings and **Approve**, **Reject** (with reason), or **Pause/Archive** listings.
+### D. Marketplace, Official Money Packs & Multi-Pipeline Senders (`/admin/marketplace`)
+Whenever a member places a Money Pack order, a live **gold notification badge** automatically appears on the **Marketplace** link in the Admin navigation bar.
+
+1. **Money Packs & Senders Tab (Default View):**
+   - **Payout Bank Account & WhatsApp Settings (One-Time Setup):** Click to expand at the bottom of the tab and enter the owner's **Bank Name, Account Number, Account Name, WhatsApp Number** (with country code, e.g. `234808...`), and **Telegram URL**, then click **Save Settings**. You can also toggle **Accepting Money Pack Orders** on/off anytime.
+   - **Multi-Pipeline Senders Bar:** Click **Connect Account** to sign in (with 2FA support) or import a cookie for **1 or multiple LagosLife sender accounts** (with optional saved transfer PIN).
+     - Each connected account shows its live Naira balance and an **On / Off** toggle.
+     - Orders automatically split across all enabled online accounts in parallel (e.g. a `1T` order splits across 2 accounts as `500B + 500B` simultaneously for faster delivery).
+   - **1-Click Order Fulfilment:** Once you confirm a buyer's bank alert/WhatsApp receipt:
+     - Click **`Approve & Send Now`** → immediately dispatches the funds across your active sender pipeline(s) and marks the order **Completed** (logged to `audit_logs`). If any sender job pauses for a PIN or 2FA code, an inline input appears right inside the order card.
+     - Click **`Mark Done`** if you already sent the funds manually outside the hub, or **`Reject`** to decline the order.
+2. **Listings Tab:** Review incoming member listings and **Approve**, **Reject** (with reason), or **Pause/Archive** listings.
    - *Reminder:* You cannot approve your own listing — another admin must review it.
-2. **Orders & Disputes Tab:** Monitor active trades. When a buyer or seller opens a **Dispute**, the order is locked from normal edits until an admin reviews the evidence/timeline and finalizes a resolution.
+3. **Orders & Disputes Tabs:** Monitor active community trades. When a buyer or seller opens a **Dispute**, the order is locked from normal edits until an admin reviews the evidence/timeline and finalizes a resolution.
 
 ### E. Publishing Announcements (`/admin/announcements`)
 1. Open `/admin/announcements` and click **New Announcement**.

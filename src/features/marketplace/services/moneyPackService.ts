@@ -65,21 +65,57 @@ export function notifyMoneyPacksUpdated(): void {
   window.dispatchEvent(new Event('vatar:money-packs-updated'));
 }
 
+function isTransientNetworkError(message: string | null | undefined): boolean {
+  if (!message) return false;
+  const lower = message.toLowerCase();
+  return (
+    lower.includes('load failed') ||
+    lower.includes('failed to fetch') ||
+    lower.includes('networkerror') ||
+    lower.includes('network request failed')
+  );
+}
+
+function formatServiceError(message: string): string {
+  if (isTransientNetworkError(message)) {
+    return 'Network connection was interrupted. Please tap Sync or try again.';
+  }
+  return message;
+}
+
+async function retryReadOnce<T extends { error: string | null }>(
+  operation: () => Promise<T>,
+): Promise<T> {
+  const first = await operation();
+  if (!first.error || !isTransientNetworkError(first.error)) {
+    return first;
+  }
+  await new Promise((resolve) => window.setTimeout(resolve, 400));
+  const second = await operation();
+  if (second.error) {
+    return { ...second, error: formatServiceError(second.error) };
+  }
+  return second;
+}
+
 export async function fetchMoneyPackSettings(): Promise<{
   settings: MoneyPackSettingsRecord | null;
   error: string | null;
 }> {
   if (!supabase) return { settings: null, error: 'Supabase is not configured.' };
-  const { data, error } = await supabase
-    .from('money_pack_settings')
-    .select('*')
-    .eq('id', 1)
-    .maybeSingle();
+  const client = supabase;
+  return retryReadOnce(async () => {
+    const { data, error } = await client
+      .from('money_pack_settings')
+      .select('*')
+      .eq('id', 1)
+      .maybeSingle();
 
-  if (error) {
-    return { settings: null, error: error.message };
-  }
-  return { settings: data, error: null };
+    if (error) {
+      return { settings: null, error: error.message };
+    }
+    return { settings: data, error: null };
+  });
 }
 
 export async function fetchMyMoneyPackOrders(): Promise<{
@@ -87,16 +123,19 @@ export async function fetchMyMoneyPackOrders(): Promise<{
   error: string | null;
 }> {
   if (!supabase) return { orders: [], error: 'Supabase is not configured.' };
-  const { data, error } = await supabase
-    .from('money_pack_orders')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(50);
+  const client = supabase;
+  return retryReadOnce(async () => {
+    const { data, error } = await client
+      .from('money_pack_orders')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50);
 
-  if (error) {
-    return { orders: [], error: error.message };
-  }
-  return { orders: data ?? [], error: null };
+    if (error) {
+      return { orders: [], error: error.message };
+    }
+    return { orders: data ?? [], error: null };
+  });
 }
 
 export async function fetchAdminMoneyPackOrders(): Promise<{
@@ -104,33 +143,36 @@ export async function fetchAdminMoneyPackOrders(): Promise<{
   error: string | null;
 }> {
   if (!supabase) return { orders: [], error: 'Supabase is not configured.' };
-  const [ordersRes, profilesRes] = await Promise.all([
-    supabase
-      .from('money_pack_orders')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(100),
-    supabase.from('profiles').select('id, username, full_name'),
-  ]);
+  const client = supabase;
+  return retryReadOnce(async () => {
+    const [ordersRes, profilesRes] = await Promise.all([
+      client
+        .from('money_pack_orders')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100),
+      client.from('profiles').select('id, username, full_name'),
+    ]);
 
-  if (ordersRes.error) {
-    return { orders: [], error: ordersRes.error.message };
-  }
+    if (ordersRes.error) {
+      return { orders: [], error: ordersRes.error.message };
+    }
 
-  const profileMap = new Map(
-    (profilesRes.data ?? []).map((p) => [p.id, p]),
-  );
+    const profileMap = new Map(
+      (profilesRes.data ?? []).map((p) => [p.id, p]),
+    );
 
-  const enriched: AdminMoneyPackOrderView[] = (ordersRes.data ?? []).map((order) => {
-    const profile = profileMap.get(order.buyer_id);
-    return {
-      ...order,
-      buyer_username: profile?.username ?? 'member',
-      buyer_full_name: profile?.full_name ?? 'VATAR Member',
-    };
+    const enriched: AdminMoneyPackOrderView[] = (ordersRes.data ?? []).map((order) => {
+      const profile = profileMap.get(order.buyer_id);
+      return {
+        ...order,
+        buyer_username: profile?.username ?? 'member',
+        buyer_full_name: profile?.full_name ?? 'VATAR Member',
+      };
+    });
+
+    return { orders: enriched, error: null };
   });
-
-  return { orders: enriched, error: null };
 }
 
 export async function createMoneyPackOrder(params: {
@@ -222,7 +264,7 @@ export async function adminUpdateMoneyPackSettings(params: {
   });
 
   if (error) {
-    return { settings: null, error: error.message };
+    return { settings: null, error: formatServiceError(error.message) };
   }
   return { settings: data, error: null };
 }
@@ -232,9 +274,12 @@ export async function fetchPendingMoneyPackCount(): Promise<{
   error: string | null;
 }> {
   if (!supabase) return { count: 0, error: null };
-  const { data, error } = await supabase.rpc('get_pending_money_pack_count');
-  if (error) {
-    return { count: 0, error: error.message };
-  }
-  return { count: typeof data === 'number' ? data : 0, error: null };
+  const client = supabase;
+  return retryReadOnce(async () => {
+    const { data, error } = await client.rpc('get_pending_money_pack_count');
+    if (error) {
+      return { count: 0, error: error.message };
+    }
+    return { count: typeof data === 'number' ? data : 0, error: null };
+  });
 }
