@@ -99,6 +99,7 @@ export function AdminMoneyPacksPanel() {
     challenge: string;
     method?: string;
     to?: string;
+    hint?: string;
   } | null>(null);
   const [twoFactorCode, setTwoFactorCode] = useState('');
 
@@ -214,17 +215,20 @@ export function AdminMoneyPacksPanel() {
     setBanner(null);
 
     try {
+      const cleanUser = loginUser.trim().replace(/^@/, '');
       const res =
         authTab === 'login'
-          ? await loginLagosLife(loginUser.trim(), loginPass)
+          ? await loginLagosLife(cleanUser, loginPass)
           : await importLagosLifeCookie(cookieInput.trim());
 
-      if (res.data.twoFactor && res.data.challenge) {
+      if ((res.data.twoFactorRequired || res.data.twoFactor) && res.data.challenge) {
         setTwoFactor({
           challenge: res.data.challenge,
           method: res.data.method,
           to: res.data.to,
+          hint: res.data.error,
         });
+        setTwoFactorCode('');
         setAddingSender(false);
         return;
       }
@@ -582,7 +586,8 @@ export function AdminMoneyPacksPanel() {
               <form onSubmit={(e) => void handleVerify2FA(e)} className="flex flex-wrap items-end gap-3">
                 <div className="min-w-[200px] flex-1">
                   <label className="block font-heading text-[0.65rem] tracking-[0.18em] text-brand-gold uppercase">
-                    2FA Verification Code {twoFactor.to ? `(${twoFactor.to})` : ''}
+                    {twoFactor.hint || '2FA Verification Code'}{' '}
+                    {twoFactor.to ? `(${twoFactor.to})` : ''}
                   </label>
                   <input
                     type="text"
