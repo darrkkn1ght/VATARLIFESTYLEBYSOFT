@@ -64,7 +64,7 @@ export function RegisterPage() {
       return;
     }
 
-    navigate(ROUTES.membershipStatus, { replace: true });
+    navigate(ROUTES.dashboard, { replace: true });
   };
 
   return (

@@ -8,14 +8,20 @@ import {
   KeyRound,
   Loader2,
   Plus,
+  Receipt,
   RefreshCw,
   Send,
   Settings,
+  Square,
   Trash2,
   Wallet,
   X,
   Zap,
 } from 'lucide-react';
+import {
+  TransferReceiptModal,
+  type TransferReceiptData,
+} from '@/components/shared/TransferReceiptModal';
 import { Button } from '@/components/ui/Button';
 import {
   adminUpdateMoneyPackOrder,
@@ -41,8 +47,10 @@ import {
   importLagosLifeCookie,
   loginLagosLife,
   resendLagosLife2FA,
+  stopTransferJob,
   submitTransferTwoStep,
   verifyLagosLife2FA,
+  type TreasuryJob,
 } from '@/features/treasury/services/treasuryService';
 import type {
   MoneyPackOrderStatus,
@@ -105,6 +113,9 @@ export function AdminMoneyPacksPanel() {
 
   // Order dispatch tracking
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
+  const [confirmOrder, setConfirmOrder] = useState<AdminMoneyPackOrderView | null>(null);
+  const [stoppingJobId, setStoppingJobId] = useState<string | null>(null);
+  const [activeReceipt, setActiveReceipt] = useState<TransferReceiptData | null>(null);
   const [dispatchesByOrder, setDispatchesByOrder] = useState<
     Record<string, PipelineDispatchItem[]>
   >({});
@@ -171,6 +182,75 @@ export function AdminMoneyPacksPanel() {
     () => activeSenders.reduce((sum, s) => sum + s.money, 0),
     [activeSenders],
   );
+
+  // Flatten live pipeline jobs across all connected sender accounts
+  const allPipelineJobs = useMemo(
+    () =>
+      senders.flatMap((sender) =>
+        (sender.jobs || []).map((job) => ({
+          sender,
+          job,
+        })),
+      ),
+    [senders],
+  );
+
+  const hasActivePipelineJob = useMemo(
+    () =>
+      allPipelineJobs.some(({ job }) =>
+        ['RUNNING', 'SCHEDULED', 'PAUSED'].includes(String(job.status || '').toUpperCase()),
+      ),
+    [allPipelineJobs],
+  );
+
+  // Silently poll sender jobs every 3s ONLY while a transfer is actively running
+  useEffect(() => {
+    if (!hasActivePipelineJob) return;
+    let active = true;
+    const timer = window.setInterval(() => {
+      void refreshAllLiveSenders().then((live) => {
+        if (active) setSenders(live);
+      });
+    }, 3_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [hasActivePipelineJob]);
+
+  const handleStopJob = async (sender: LiveSenderAccount, job: TreasuryJob) => {
+    setStoppingJobId(job.id);
+    const res = await stopTransferJob(sender.token, job.id);
+    setStoppingJobId(null);
+    if (res.ok) {
+      setBanner({
+        type: 'success',
+        text: `Stopped transfer on @${sender.user} to @${job.target || job.targetLabel || 'recipient'}.`,
+      });
+      const refreshed = await refreshAllLiveSenders();
+      setSenders(refreshed);
+    } else {
+      setBanner({
+        type: 'error',
+        text: res.data.error || 'Could not stop transfer job.',
+      });
+    }
+  };
+
+  const handleResumeLiveJobCode = async (sender: LiveSenderAccount, job: TreasuryJob) => {
+    const key = `live:${sender.user}:${job.id}`;
+    const code = (twoStepCodes[key] || '').trim();
+    if (!code) return;
+    const res = await submitTransferTwoStep(sender.token, job.id, code);
+    if (res.ok) {
+      setTwoStepCodes((prev) => ({ ...prev, [key]: '' }));
+      setBanner({ type: 'success', text: `Submitted PIN/2FA code for @${sender.user}.` });
+      const refreshed = await refreshAllLiveSenders();
+      setSenders(refreshed);
+    } else {
+      setBanner({ type: 'error', text: res.data.error || 'Invalid PIN/2FA code.' });
+    }
+  };
 
   const pendingOrders = useMemo(
     () =>
@@ -329,12 +409,19 @@ export function AdminMoneyPacksPanel() {
 
     const allOk = results.length > 0 && results.every((r) => r.ok);
     const anyNeedsTwoStep = results.some((r) => r.job?.needsTwoStep);
+    const allAlreadyCompleted =
+      allOk &&
+      results.every((r) => String(r.job?.status || '').toUpperCase() === 'COMPLETED');
 
-    if (allOk && !anyNeedsTwoStep) {
+    const pipelineSummary = results
+      .map((r) => `@${r.senderUser} (${formatNaira(r.amount)})`)
+      .join(' + ');
+
+    if (allAlreadyCompleted && !anyNeedsTwoStep) {
       const doneRes = await adminUpdateMoneyPackOrder({
         orderId: order.id,
         nextStatus: 'completed',
-        adminNote: `Sent via ${results.map((r) => `@${r.senderUser} (${formatNaira(r.amount)})`).join(' + ')}`,
+        adminNote: `Sent via ${pipelineSummary}`,
       });
       if (doneRes.order) {
         setOrders((prev) =>
@@ -343,15 +430,26 @@ export function AdminMoneyPacksPanel() {
       }
       setBanner({
         type: 'success',
-        text: `Order ${order.order_code} (${order.pack_label}) dispatched to ${order.lagos_life_username} via ${results.length} pipeline(s)!`,
+        text: `Order ${order.order_code} (${order.pack_label}) completed via ${results.length} pipeline(s)!`,
       });
-    } else if (anyNeedsTwoStep) {
+    } else if (allOk) {
+      await adminUpdateMoneyPackOrder({
+        orderId: order.id,
+        nextStatus: 'sending',
+        adminNote: `Sending via ${pipelineSummary}`,
+      });
       setOrders((prev) =>
-        prev.map((o) => (o.id === order.id ? { ...o, status: 'sending' } : o)),
+        prev.map((o) =>
+          o.id === order.id
+            ? { ...o, status: 'sending', admin_note: `Sending via ${pipelineSummary}` }
+            : o,
+        ),
       );
       setBanner({
         type: 'success',
-        text: `Transfer started for ${order.order_code} — enter the PIN / 2FA code inside the order card to finish.`,
+        text: anyNeedsTwoStep
+          ? `Transfer started for ${order.order_code} — enter PIN / 2FA in the Live Pipeline Monitor above.`
+          : `Sending ${order.pack_label} to @${order.lagos_life_username} — watch live % progress or STOP anytime in Live Pipeline Monitor above.`,
       });
     } else {
       const failedMsg = results
@@ -361,6 +459,7 @@ export function AdminMoneyPacksPanel() {
       setBanner({ type: 'error', text: `Some sends failed: ${failedMsg}` });
     }
 
+    setConfirmOrder(null);
     const refreshed = await refreshAllLiveSenders();
     setSenders(refreshed);
     setBusyOrderId(null);
@@ -694,6 +793,176 @@ export function AdminMoneyPacksPanel() {
         )}
       </section>
 
+      {/* 1B. LIVE PIPELINE MONITOR (PROGRESS %, EMERGENCY STOP, LOGS & RECEIPT) */}
+      {allPipelineJobs.length > 0 && (
+        <section className="border border-brand-gold/45 bg-brand-charcoal/70 p-5 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="heading-eyebrow flex items-center gap-1.5">
+                <Zap className="h-3.5 w-3.5 text-brand-gold" />
+                Live Pipeline Monitor &amp; Transfer History
+              </p>
+              <p className="mt-1 font-body text-xs text-brand-muted">
+                Track live % sent, stop any active transfer immediately, inspect errors, or generate a receipt.
+              </p>
+            </div>
+            {hasActivePipelineJob && (
+              <span className="inline-flex items-center gap-1.5 border border-brand-gold/50 bg-brand-gold/15 px-2.5 py-1 font-heading text-[0.65rem] tracking-[0.16em] text-brand-gold uppercase">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Live Updating
+              </span>
+            )}
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {allPipelineJobs.slice(0, 12).map(({ sender, job }) => {
+              const total = Number(job.total || 0);
+              const remaining = Math.max(0, Number(job.remaining || 0));
+              const sent = Math.max(0, total - remaining);
+              const pct = total > 0 ? Math.min(100, Math.round((sent / total) * 100)) : 0;
+              const statusUpper = String(job.status || 'UNKNOWN').toUpperCase();
+              const isStoppable = ['RUNNING', 'SCHEDULED', 'PAUSED'].includes(statusUpper);
+              const recipientLabel = (job.target || job.targetLabel || 'recipient').replace(/^@/, '');
+              const recentLogs = (job.logs || []).slice(-2);
+              const codeKey = `live:${sender.user}:${job.id}`;
+
+              return (
+                <div
+                  key={`${sender.user}:${job.id}`}
+                  className={cn(
+                    'border p-4',
+                    isStoppable
+                      ? 'border-brand-gold/60 bg-brand-black/90'
+                      : 'hairline-border bg-brand-black/60',
+                  )}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-heading text-xs tracking-[0.14em] text-brand-cream">
+                          @{sender.user} &rarr;{' '}
+                          <span className="text-brand-gold">@{recipientLabel}</span>
+                        </span>
+                        <span
+                          className={cn(
+                            'border px-2 py-0.5 font-heading text-[0.6rem] tracking-[0.14em] uppercase',
+                            statusUpper === 'COMPLETED'
+                              ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
+                              : isStoppable
+                                ? 'border-brand-gold/50 bg-brand-gold/15 text-brand-gold'
+                                : 'border-rose-500/40 bg-rose-500/15 text-rose-300',
+                          )}
+                        >
+                          {statusUpper}
+                        </span>
+                      </div>
+                      <p className="mt-1 font-body text-xs text-brand-muted">
+                        Sent <strong className="text-brand-white">{formatNaira(sent)}</strong> of{' '}
+                        <strong className="text-brand-white">{formatNaira(total)}</strong> ({pct}%)
+                        {job.txCount ? ` • ${job.txCount}${job.totalTxs ? `/${job.totalTxs}` : ''} txs` : ''}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {isStoppable && (
+                        <button
+                          type="button"
+                          disabled={stoppingJobId === job.id}
+                          onClick={() => void handleStopJob(sender, job)}
+                          className="inline-flex cursor-pointer items-center gap-1.5 border border-rose-500 bg-rose-600 px-3 py-1.5 font-heading text-[0.68rem] font-semibold tracking-[0.16em] text-white uppercase transition-colors hover:bg-rose-500 disabled:opacity-60"
+                        >
+                          <Square className="h-3 w-3 fill-current" />
+                          {stoppingJobId === job.id ? 'Stopping...' : 'Stop Transfer'}
+                        </button>
+                      )}
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() =>
+                          setActiveReceipt({
+                            title: 'LagosLife Transfer Proof',
+                            reference: `JOB-${job.id.slice(0, 8).toUpperCase()}`,
+                            recipient: recipientLabel,
+                            senders: [sender.user],
+                            totalAmount: total,
+                            sentAmount: sent,
+                            status: statusUpper,
+                            timestamp: new Date().toISOString(),
+                            txCount: job.txCount ?? null,
+                            note: recentLogs.length > 0 ? recentLogs[recentLogs.length - 1] : null,
+                          })
+                        }
+                      >
+                        <Receipt className="h-3.5 w-3.5 text-brand-gold" />
+                        Receipt
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Progress Bar */}
+                  <div className="mt-3 h-2 w-full overflow-hidden bg-brand-charcoal">
+                    <div
+                      className={cn(
+                        'h-full transition-all duration-300',
+                        statusUpper === 'COMPLETED'
+                          ? 'bg-emerald-400'
+                          : statusUpper === 'CANCELLED' || statusUpper === 'FAILED'
+                            ? 'bg-rose-400'
+                            : 'bg-brand-gold',
+                      )}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+
+                  {/* Live Logs / Errors */}
+                  {recentLogs.length > 0 && (
+                    <div className="mt-2.5 space-y-1 font-mono text-[11px]">
+                      {recentLogs.map((line, idx) => {
+                        const isErr = /err|fail|insufficient|wrong|stop|cancel/i.test(line);
+                        return (
+                          <p
+                            key={idx}
+                            className={isErr ? 'text-rose-300' : 'text-brand-muted'}
+                          >
+                            {line}
+                          </p>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Inline PIN / 2FA Resume */}
+                  {job.needsTwoStep && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t hairline-border pt-3 text-xs">
+                      <KeyRound className="h-3.5 w-3.5 text-brand-gold" />
+                      <span className="text-brand-cream">
+                        Needs {job.twoStepType || 'PIN/2FA'}:
+                      </span>
+                      <input
+                        type="text"
+                        value={twoStepCodes[codeKey] || ''}
+                        onChange={(e) =>
+                          setTwoStepCodes((prev) => ({ ...prev, [codeKey]: e.target.value }))
+                        }
+                        placeholder="Enter PIN / 2FA"
+                        className="border hairline-border bg-brand-charcoal px-2.5 py-1 text-xs text-brand-white focus:border-brand-gold focus:outline-none"
+                      />
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => void handleResumeLiveJobCode(sender, job)}
+                      >
+                        Resume
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {/* 2. INCOMING MONEY PACK ORDERS (1-CLICK APPROVE & SEND) */}
       <section className="border hairline-border bg-brand-charcoal/55 p-5 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -807,42 +1076,96 @@ export function AdminMoneyPacksPanel() {
                       )}
                     </div>
 
-                    {isActionable && (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          disabled={busyOrderId === order.id}
-                          onClick={() => void handleApproveAndSend(order)}
-                        >
-                          {busyOrderId === order.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <div className="flex flex-wrap items-center gap-2">
+                      {isActionable && (
+                        <>
+                          {confirmOrder?.id === order.id ? (
+                            <div className="flex flex-wrap items-center gap-2 border border-brand-gold bg-brand-gold/10 px-3 py-1.5">
+                              <span className="font-body text-xs text-brand-cream">
+                                Send <strong>{order.pack_label}</strong> to{' '}
+                                <strong className="text-brand-gold">
+                                  @{order.lagos_life_username}
+                                </strong>
+                                ?
+                              </span>
+                              <Button
+                                variant="primary"
+                                size="sm"
+                                disabled={busyOrderId === order.id}
+                                onClick={() => void handleApproveAndSend(order)}
+                              >
+                                {busyOrderId === order.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Send className="h-3.5 w-3.5" />
+                                )}
+                                Confirm Send
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => setConfirmOrder(null)}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
                           ) : (
-                            <Send className="h-3.5 w-3.5" />
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              disabled={busyOrderId === order.id}
+                              onClick={() => setConfirmOrder(order)}
+                            >
+                              <Send className="h-3.5 w-3.5" />
+                              Approve &amp; Send Now
+                            </Button>
                           )}
-                          Approve &amp; Send Now
-                        </Button>
 
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={busyOrderId === order.id}
+                            onClick={() => void handleManualStatus(order, 'completed')}
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Mark Done
+                          </Button>
+
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={busyOrderId === order.id}
+                            onClick={() => void handleManualStatus(order, 'rejected')}
+                          >
+                            Reject
+                          </Button>
+                        </>
+                      )}
+
+                      {(order.status === 'completed' || order.status === 'sending') && (
                         <Button
                           variant="secondary"
                           size="sm"
-                          disabled={busyOrderId === order.id}
-                          onClick={() => void handleManualStatus(order, 'completed')}
+                          onClick={() =>
+                            setActiveReceipt({
+                              title: `Money Pack — ${order.pack_label}`,
+                              reference: order.order_code,
+                              recipient: order.lagos_life_username,
+                              senders: activeSenders.map((s) => s.user),
+                              totalAmount: order.in_game_amount,
+                              sentAmount: order.in_game_amount,
+                              status: MONEY_PACK_STATUS_LABELS[order.status],
+                              timestamp: order.completed_at || order.approved_at || order.created_at,
+                              priceNgn: order.total_price_ngn,
+                              note: order.admin_note,
+                            })
+                          }
                         >
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                          Mark Done
+                          <Receipt className="h-3.5 w-3.5 text-brand-gold" />
+                          Receipt
                         </Button>
-
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={busyOrderId === order.id}
-                          onClick={() => void handleManualStatus(order, 'rejected')}
-                        >
-                          Reject
-                        </Button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
 
                   {/* Inline PIN / 2FA prompts if any pipeline job paused for code */}
@@ -1007,6 +1330,10 @@ export function AdminMoneyPacksPanel() {
           </form>
         )}
       </section>
+      <TransferReceiptModal
+        receipt={activeReceipt}
+        onClose={() => setActiveReceipt(null)}
+      />
     </div>
   );
 }

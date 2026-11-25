@@ -2,12 +2,19 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   CheckCircle2,
   Gift,
+  History,
   KeyRound,
   LogOut,
+  Receipt,
   RefreshCw,
+  Search,
   ShieldCheck,
   Wallet,
 } from 'lucide-react';
+import {
+  TransferReceiptModal,
+  type TransferReceiptData,
+} from '@/components/shared/TransferReceiptModal';
 import { Button } from '@/components/ui/Button';
 import {
   fetchTreasuryStatus,
@@ -148,6 +155,8 @@ export function WelcomeBonusInventoryCard({
     () => sessionStorage.getItem('vatar_admin_bonus_pin') || '',
   );
   const [expanded, setExpanded] = useState(false);
+  const [historySearch, setHistorySearch] = useState('');
+  const [activeReceipt, setActiveReceipt] = useState<TransferReceiptData | null>(null);
 
   // Connect form
   const [authTab, setAuthTab] = useState<'login' | 'cookie'>('login');
@@ -188,15 +197,42 @@ export function WelcomeBonusInventoryCard({
     [token],
   );
 
+  const hasRunningBonusJob = jobs.some((j) =>
+    ['RUNNING', 'SCHEDULED', 'PAUSED'].includes(String(j.status || '').toUpperCase()),
+  );
+
   useEffect(() => {
     setCfg(loadWelcomeBonusConfig());
     if (!token) return;
     void syncAccount(token);
+  }, [token, syncAccount, refreshSignal]);
+
+  // Only poll every 3s while a bonus transfer is actively running
+  useEffect(() => {
+    if (!token || !hasRunningBonusJob) return;
     const id = window.setInterval(() => {
       void syncAccount(token);
     }, 3000);
     return () => window.clearInterval(id);
-  }, [token, syncAccount, refreshSignal]);
+  }, [token, hasRunningBonusJob, syncAccount]);
+
+  const bonusHistoryEntries = Object.entries(cfg.sentHandles)
+    .map(([handle, meta]) => ({
+      handle,
+      at: meta.at,
+      amount: meta.amount,
+      memberLabel: meta.memberLabel,
+    }))
+    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+
+  const filteredBonusHistory = bonusHistoryEntries.filter((entry) => {
+    const q = historySearch.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      entry.handle.toLowerCase().includes(q) ||
+      entry.memberLabel.toLowerCase().includes(q)
+    );
+  });
 
   const updateCfg = (patch: Partial<WelcomeBonusConfig>) => {
     setCfg((prev) => {
@@ -631,8 +667,90 @@ export function WelcomeBonusInventoryCard({
               )}
             </div>
           )}
+
+          {/* Welcome Bonus History & Proof Receipts */}
+          <div className="border hairline-border bg-brand-black/80 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <History className="h-4 w-4 text-brand-gold" aria-hidden="true" />
+                <span className="font-heading text-xs font-semibold tracking-[0.16em] text-brand-cream uppercase">
+                  Welcome Bonus History ({bonusHistoryEntries.length})
+                </span>
+              </div>
+              {bonusHistoryEntries.length > 0 && (
+                <div className="relative min-w-[200px] flex-1 sm:max-w-xs">
+                  <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-brand-muted" />
+                  <input
+                    type="text"
+                    value={historySearch}
+                    onChange={(e) => setHistorySearch(e.target.value)}
+                    placeholder="Search @handle or member..."
+                    className="w-full border hairline-border bg-brand-charcoal py-1.5 pr-3 pl-8 font-body text-xs text-brand-white placeholder:text-brand-muted/60 focus:border-brand-gold focus:outline-none"
+                  />
+                </div>
+              )}
+            </div>
+
+            {filteredBonusHistory.length === 0 ? (
+              <p className="mt-3 font-body text-xs text-brand-muted">
+                {bonusHistoryEntries.length === 0
+                  ? 'No welcome bonuses dispatched yet. Dispatched bonuses will appear here with downloadable proof receipts.'
+                  : 'No matching welcome bonus records found.'}
+              </p>
+            ) : (
+              <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+                {filteredBonusHistory.map((entry) => (
+                  <div
+                    key={`${entry.handle}:${entry.at}`}
+                    className="flex flex-wrap items-center justify-between gap-2 border hairline-border bg-brand-charcoal/60 px-3.5 py-2.5 text-xs"
+                  >
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-heading tracking-[0.12em] text-brand-gold">
+                          @{entry.handle}
+                        </span>
+                        <span className="text-brand-white font-medium">
+                          {formatNaira(entry.amount)}
+                        </span>
+                        <span className="text-brand-muted">({entry.memberLabel})</span>
+                      </div>
+                      <p className="mt-0.5 font-body text-[11px] text-brand-muted">
+                        Sent {new Date(entry.at).toLocaleString()}
+                      </p>
+                    </div>
+
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() =>
+                        setActiveReceipt({
+                          title: 'Welcome Bonus Delivery Receipt',
+                          reference: `WB-${entry.handle.slice(0, 6).toUpperCase()}`,
+                          recipient: entry.handle,
+                          senders: account?.user ? [account.user] : ['VATAR Bonus Pool'],
+                          totalAmount: entry.amount,
+                          sentAmount: entry.amount,
+                          status: 'COMPLETED',
+                          timestamp: entry.at,
+                          note: `Welcome bonus dispatched on approval for ${entry.memberLabel}.`,
+                        })
+                      }
+                    >
+                      <Receipt className="h-3.5 w-3.5 text-brand-gold" />
+                      Receipt
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
+
+      <TransferReceiptModal
+        receipt={activeReceipt}
+        onClose={() => setActiveReceipt(null)}
+      />
     </div>
   );
 }

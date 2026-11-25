@@ -54,8 +54,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const requestSeqRef = useRef(0);
   const isMountedRef = useRef(true);
   const lastFetchedAtRef = useRef(0);
+  const loadedUserIdRef = useRef<string | null>(null);
 
   const clearAccountState = useCallback(() => {
+    loadedUserIdRef.current = null;
     setProfile(null);
     setMembership(null);
     setRoles([]);
@@ -71,6 +73,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       return;
     }
 
+    loadedUserIdRef.current = userId;
     lastFetchedAtRef.current = Date.now();
     setProfile(account.profile);
     setMembership(account.membership);
@@ -106,6 +109,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
         requestSeqRef.current += 1;
         clearAccountState();
         setIsLoading(false);
+        return;
+      }
+
+      const alreadyLoadedSameUser = loadedUserIdRef.current === nextUser.id;
+
+      // Never flip isLoading=true when the same user is already loaded (e.g. Safari
+      // tab switch / TOKEN_REFRESHED / duplicate SIGNED_IN), otherwise RouteGuards
+      // unmount the active page and wipe open forms & 2FA modals!
+      if (alreadyLoadedSameUser) {
+        if (Date.now() - lastFetchedAtRef.current < FOCUS_REVALIDATION_MIN_INTERVAL_MS) {
+          return;
+        }
+        queueMicrotask(() => {
+          if (!isMountedRef.current) return;
+          void loadAccountData(nextUser.id);
+        });
         return;
       }
 
