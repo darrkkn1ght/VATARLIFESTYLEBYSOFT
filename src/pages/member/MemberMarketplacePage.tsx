@@ -213,29 +213,15 @@ export function MemberMarketplacePage() {
 
   return (
     <div className="bg-brand-black">
-      {/* Masthead */}
-      <section className="relative overflow-hidden border-b hairline-border bg-brand-obsidian">
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 ambient-gold-glow"
-        />
-        <PageContainer className="relative py-12 sm:py-16">
-          <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
-            <div>
-              <div className="flex items-center gap-3">
-                <span aria-hidden="true" className="h-px w-8 bg-brand-gold" />
-                <p className="heading-eyebrow">Community Exchange</p>
-              </div>
-              <h1 className="heading-display mt-4 text-4xl text-brand-white sm:text-5xl">
-                Member Marketplace
-              </h1>
-              <p className="mt-3 max-w-2xl font-body text-sm leading-relaxed text-brand-muted">
-                Browse moderator-approved listings, submit manual-fulfilment purchase
-                requests, or manage your own offerings.
-              </p>
-            </div>
+      {/* Compact Header */}
+      <section className="border-b hairline-border bg-brand-obsidian">
+        <PageContainer className="py-5 sm:py-6">
+          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+            <h1 className="heading-display text-2xl text-brand-white sm:text-3xl">
+              Marketplace
+            </h1>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant="subtle"
                 size="sm"
@@ -273,10 +259,8 @@ export function MemberMarketplacePage() {
         </PageContainer>
       </section>
 
-      <PageContainer className="space-y-8 py-10 sm:py-14">
+      <PageContainer className="space-y-6 py-6 sm:py-8">
         <MemberMoneyPacksSection />
-
-        <MarketplaceSafetyBanner />
 
         {feedback && (
           <div

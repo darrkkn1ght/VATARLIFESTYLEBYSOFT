@@ -226,26 +226,12 @@ export function AdminMarketplacePage() {
 
   return (
     <div className="bg-brand-black">
-      <section className="relative overflow-hidden border-b hairline-border bg-brand-obsidian">
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 ambient-gold-glow"
-        />
-        <PageContainer className="relative py-12 sm:py-16">
-          <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
-            <div>
-              <div className="flex items-center gap-3">
-                <span aria-hidden="true" className="h-px w-8 bg-brand-gold" />
-                <p className="heading-eyebrow">Admin Control Center</p>
-              </div>
-              <h1 className="heading-display mt-4 text-4xl text-brand-white sm:text-5xl">
-                Marketplace Oversight
-              </h1>
-              <p className="mt-3 max-w-2xl font-body text-sm leading-relaxed text-brand-muted">
-                Moderate member listings, audit manual-fulfilment order timelines, and
-                resolve community disputes with permanent audit trails.
-              </p>
-            </div>
+      <section className="border-b hairline-border bg-brand-obsidian">
+        <PageContainer className="py-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <h1 className="heading-display text-2xl text-brand-white sm:text-3xl">
+              Admin Marketplace
+            </h1>
 
             <Button
               variant="subtle"
@@ -263,7 +249,7 @@ export function AdminMarketplacePage() {
         </PageContainer>
       </section>
 
-      <PageContainer className="space-y-8 py-10 sm:py-14">
+      <PageContainer className="space-y-6 py-6">
         {feedback && (
           <div
             role="status"
