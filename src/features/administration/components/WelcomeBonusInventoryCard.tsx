@@ -7,7 +7,9 @@ import {
   LogOut,
   Receipt,
   RefreshCw,
+  RotateCcw,
   Search,
+  Send,
   ShieldCheck,
   Wallet,
 } from 'lucide-react';
@@ -16,6 +18,7 @@ import {
   type TransferReceiptData,
 } from '@/components/shared/TransferReceiptModal';
 import { Button } from '@/components/ui/Button';
+import type { AdminMemberRecord } from '@/features/administration/types/admin.types';
 import {
   fetchTreasuryStatus,
   formatNaira,
@@ -24,6 +27,7 @@ import {
   logoutTreasury,
   parseNairaAmount,
   resendLagosLife2FA,
+  sendBatchTransfer,
   sendSingleTransfer,
   submitTransferTwoStep,
   verifyLagosLife2FA,
@@ -108,7 +112,10 @@ export async function dispatchWelcomeBonusOnApproval(input: {
     };
   }
 
-  const pin = sessionStorage.getItem('vatar_admin_bonus_pin') || undefined;
+  const pin =
+    localStorage.getItem('vatar_admin_bonus_pin') ||
+    sessionStorage.getItem('vatar_admin_bonus_pin') ||
+    undefined;
   const res = await sendSingleTransfer(token, {
     to: handle,
     amount,
@@ -139,10 +146,12 @@ const PRESET_BONUSES = ['5B', '10B', '20B', '50B', '100B'];
 
 interface WelcomeBonusInventoryCardProps {
   refreshSignal?: number;
+  members?: readonly AdminMemberRecord[];
 }
 
 export function WelcomeBonusInventoryCard({
   refreshSignal = 0,
+  members = [],
 }: WelcomeBonusInventoryCardProps) {
   const [cfg, setCfg] = useState<WelcomeBonusConfig>(() => loadWelcomeBonusConfig());
   const [token, setToken] = useState<string | null>(() =>
@@ -152,9 +161,13 @@ export function WelcomeBonusInventoryCard({
   const [jobs, setJobs] = useState<TreasuryJob[]>([]);
   const [jobCodes, setJobCodes] = useState<Record<string, string>>({});
   const [bonusPin, setBonusPin] = useState<string>(
-    () => sessionStorage.getItem('vatar_admin_bonus_pin') || '',
+    () =>
+      localStorage.getItem('vatar_admin_bonus_pin') ||
+      sessionStorage.getItem('vatar_admin_bonus_pin') ||
+      '',
   );
   const [expanded, setExpanded] = useState(false);
+  const [sendingBatch, setSendingBatch] = useState(false);
   const [historySearch, setHistorySearch] = useState('');
   const [activeReceipt, setActiveReceipt] = useState<TransferReceiptData | null>(null);
 
@@ -224,6 +237,98 @@ export function WelcomeBonusInventoryCard({
       memberLabel: meta.memberLabel,
     }))
     .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+
+  const unpaidMembers = members
+    .filter((m) => m.membership.status === 'approved')
+    .map((m) => {
+      const handle = String(m.profile?.lagos_life_username || '')
+        .trim()
+        .replace(/^@/, '')
+        .toLowerCase();
+      return {
+        handle,
+        memberLabel:
+          m.profile?.full_name || m.profile?.username || handle || m.userId.slice(0, 8),
+      };
+    })
+    .filter((item) => item.handle.length >= 2 && !cfg.sentHandles[item.handle]);
+
+  // Deduplicate unpaid handles in case two profiles share one
+  const uniqueUnpaidMembers = Array.from(
+    new Map(unpaidMembers.map((item) => [item.handle, item])).values(),
+  );
+
+  const handleSendAllUnpaid = async () => {
+    if (!token || uniqueUnpaidMembers.length === 0) return;
+    const amount = parseNairaAmount(cfg.amountRaw);
+    if (amount <= 0) {
+      setError(`Invalid bonus amount "${cfg.amountRaw}".`);
+      return;
+    }
+
+    setSendingBatch(true);
+    setError(null);
+    setNotice(null);
+    const pin = bonusPin.trim() || undefined;
+
+    const res = await sendBatchTransfer(token, {
+      recipients: uniqueUnpaidMembers.map((m) => m.handle),
+      amountPerUser: amount,
+      ...(pin ? { pin } : {}),
+    });
+
+    setSendingBatch(false);
+    if (!res.ok) {
+      setError(res.data.error || 'Could not start batch welcome bonus transfer.');
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const nextSent = { ...cfg.sentHandles };
+    for (const m of uniqueUnpaidMembers) {
+      nextSent[m.handle] = { at: nowIso, amount, memberLabel: m.memberLabel };
+    }
+    updateCfg({ sentHandles: nextSent });
+    setNotice(
+      `Dispatched ${formatNaira(amount)} welcome bonus to ${uniqueUnpaidMembers.length} unpaid member(s)!`,
+    );
+    await syncAccount(token);
+  };
+
+  const handleResendBonus = async (entry: {
+    handle: string;
+    amount: number;
+    memberLabel: string;
+  }) => {
+    if (!token) {
+      setError('Connect a bonus account first to re-send.');
+      return;
+    }
+    const amount = parseNairaAmount(cfg.amountRaw) || entry.amount;
+    setError(null);
+    setNotice(null);
+    const pin = bonusPin.trim() || undefined;
+    const res = await sendSingleTransfer(token, {
+      to: entry.handle,
+      amount,
+      ...(pin ? { pin } : {}),
+    });
+    if (!res.ok) {
+      setError(res.data.error || `Could not re-send to @${entry.handle}.`);
+      return;
+    }
+    const nextSent = {
+      ...cfg.sentHandles,
+      [entry.handle]: {
+        at: new Date().toISOString(),
+        amount,
+        memberLabel: entry.memberLabel,
+      },
+    };
+    updateCfg({ sentHandles: nextSent });
+    setNotice(`Re-dispatched ${formatNaira(amount)} welcome bonus to @${entry.handle}.`);
+    await syncAccount(token);
+  };
 
   const filteredBonusHistory = bonusHistoryEntries.filter((entry) => {
     const q = historySearch.trim().toLowerCase();
@@ -450,6 +555,31 @@ export function WelcomeBonusInventoryCard({
         </div>
       )}
 
+      {/* Catch-up banner for approved / auto-approved members who haven't been paid yet */}
+      {uniqueUnpaidMembers.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border border-brand-gold/60 bg-brand-gold/10 px-4 py-3">
+          <div className="text-xs">
+            <p className="font-heading tracking-[0.14em] text-brand-gold uppercase">
+              {uniqueUnpaidMembers.length} Approved Member(s) Pending Welcome Bonus
+            </p>
+            <p className="mt-0.5 font-body text-brand-cream/85">
+              Includes auto-approved signups or members approved before auto-send was enabled.
+            </p>
+          </div>
+          <Button
+            variant="primary"
+            size="sm"
+            disabled={!token || sendingBatch}
+            onClick={() => void handleSendAllUnpaid()}
+          >
+            <Send className="h-3.5 w-3.5" />
+            {sendingBatch
+              ? 'Sending...'
+              : `Send ${cfg.amountRaw} to All ${uniqueUnpaidMembers.length} Now`}
+          </Button>
+        </div>
+      )}
+
       {expanded && (
         <div className="mt-5 space-y-5 border-t hairline-border pt-5">
           {error && (
@@ -497,21 +627,21 @@ export function WelcomeBonusInventoryCard({
 
             <div>
               <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
-                Bonus Account Transaction PIN (Optional, session-only)
+                Bonus Account Transaction PIN (Saved on this device)
               </label>
               <input
                 type="password"
                 value={bonusPin}
                 onChange={(e) => {
                   setBonusPin(e.target.value);
-                  sessionStorage.setItem('vatar_admin_bonus_pin', e.target.value);
+                  localStorage.setItem('vatar_admin_bonus_pin', e.target.value);
                 }}
                 placeholder="4-digit PIN if required"
                 maxLength={8}
                 className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2 font-mono text-sm text-brand-white focus:border-brand-gold focus:outline-none"
               />
               <p className="mt-1.5 font-body text-[11px] text-brand-muted">
-                1-time per LagosLife handle dedup is enforced automatically.
+                Saved locally so Safari doesn&apos;t clear it between sessions.
               </p>
             </div>
           </div>
@@ -719,26 +849,36 @@ export function WelcomeBonusInventoryCard({
                       </p>
                     </div>
 
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() =>
-                        setActiveReceipt({
-                          title: 'Welcome Bonus Delivery Receipt',
-                          reference: `WB-${entry.handle.slice(0, 6).toUpperCase()}`,
-                          recipient: entry.handle,
-                          senders: account?.user ? [account.user] : ['VATAR Bonus Pool'],
-                          totalAmount: entry.amount,
-                          sentAmount: entry.amount,
-                          status: 'COMPLETED',
-                          timestamp: entry.at,
-                          note: `Welcome bonus dispatched on approval for ${entry.memberLabel}.`,
-                        })
-                      }
-                    >
-                      <Receipt className="h-3.5 w-3.5 text-brand-gold" />
-                      Receipt
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void handleResendBonus(entry)}
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                        Re-send
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() =>
+                          setActiveReceipt({
+                            title: 'Welcome Bonus Delivery Receipt',
+                            reference: `WB-${entry.handle.slice(0, 6).toUpperCase()}`,
+                            recipient: entry.handle,
+                            senders: account?.user ? [account.user] : ['VATAR Bonus Pool'],
+                            totalAmount: entry.amount,
+                            sentAmount: entry.amount,
+                            status: 'COMPLETED',
+                            timestamp: entry.at,
+                            note: `Welcome bonus dispatched on approval for ${entry.memberLabel}.`,
+                          })
+                        }
+                      >
+                        <Receipt className="h-3.5 w-3.5 text-brand-gold" />
+                        Receipt
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>

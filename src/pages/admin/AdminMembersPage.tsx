@@ -268,7 +268,10 @@ export function AdminMembersPage() {
       </section>
 
       <PageContainer className="py-10 sm:py-14">
-        <WelcomeBonusInventoryCard refreshSignal={bonusRefreshSignal} />
+        <WelcomeBonusInventoryCard
+          refreshSignal={bonusRefreshSignal}
+          members={members}
+        />
 
         {feedbackMessage && (
           <div
