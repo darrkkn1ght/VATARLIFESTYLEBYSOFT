@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Clock,
@@ -7,9 +7,11 @@ import {
   KeyRound,
   LogOut,
   Play,
+  Receipt,
   RefreshCw,
   Send,
   ShieldCheck,
+  Sparkles,
   Square,
   Users,
   Wallet,
@@ -17,6 +19,10 @@ import {
 } from 'lucide-react';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { SectionHeading } from '@/components/shared/SectionHeading';
+import {
+  TransferReceiptModal,
+  type TransferReceiptData,
+} from '@/components/shared/TransferReceiptModal';
 import { Button } from '@/components/ui/Button';
 import {
   fetchTreasuryStatus,
@@ -53,6 +59,23 @@ const BULK_CHIPS = [
 ];
 
 const DONATE_CHIPS = ['10B', '50B', '100B', '500B'];
+const SPRAY_TOTAL_CHIPS = ['100B', '200B', '500B', '1T'];
+const SPRAY_DROP_CHIPS = ['10B', '25B', '50B', '100B'];
+const MAX_SPRAY_PER_MINUTE = 100_000_000_000; // 100B/min VATAR Treasury speed cap
+const TRANSFER_COOLDOWN_MS = 60_000; // 1-minute cooldown between transfers
+const COOLDOWN_STORAGE_KEY = 'vatar_treasury_cooldown_until';
+
+interface AutoSpraySession {
+  recipients: string[];
+  totalBudget: number;
+  dropPerMin: number;
+  sentSoFar: number;
+  dropsCompleted: number;
+  nextDropAt: number | null;
+  status: 'RUNNING' | 'COMPLETED' | 'STOPPED';
+  startedAt: string;
+  pin?: string;
+}
 
 export function MemberTreasuryPage() {
   const [searchParams] = useSearchParams();
@@ -83,7 +106,7 @@ export function MemberTreasuryPage() {
   const [twoFactorLoading, setTwoFactorLoading] = useState(false);
 
   // Transfer mode state
-  const [mode, setMode] = useState<'single' | 'batch'>('single');
+  const [mode, setMode] = useState<'single' | 'batch' | 'spray'>('single');
   const [recipient, setRecipient] = useState(() => searchParams.get('to') || '');
   const [singleAmount, setSingleAmount] = useState(() => searchParams.get('amount') || '');
   const [singleSchedule, setSingleSchedule] = useState('');
@@ -93,6 +116,24 @@ export function MemberTreasuryPage() {
   const [bulkSchedule, setBulkSchedule] = useState('');
   const [bulkPin, setBulkPin] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Auto-Spray state (100B/min cap)
+  const [sprayRecipients, setSprayRecipients] = useState('');
+  const [sprayTotal, setSprayTotal] = useState('500B');
+  const [sprayPerMin, setSprayPerMin] = useState('100B');
+  const [sprayPin, setSprayPin] = useState('');
+  const [spraySession, setSpraySession] = useState<AutoSpraySession | null>(null);
+  const sprayTimerRef = useRef<number | null>(null);
+
+  // 1-minute cooldown between transfers
+  const [cooldownUntil, setCooldownUntil] = useState<number>(() => {
+    const raw = Number(localStorage.getItem(COOLDOWN_STORAGE_KEY) || '0');
+    return Number.isFinite(raw) ? raw : 0;
+  });
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  // Receipt modal state
+  const [activeReceipt, setActiveReceipt] = useState<TransferReceiptData | null>(null);
 
   // Per-job inline PIN/2FA inputs
   const [jobCodes, setJobCodes] = useState<Record<string, string>>({});
@@ -128,14 +169,50 @@ export function MemberTreasuryPage() {
     [token],
   );
 
+  const startCooldown = useCallback(() => {
+    const until = Date.now() + TRANSFER_COOLDOWN_MS;
+    localStorage.setItem(COOLDOWN_STORAGE_KEY, String(until));
+    setCooldownUntil(until);
+    setNowTick(Date.now());
+  }, []);
+
+  const cooldownSecondsLeft = Math.max(0, Math.ceil((cooldownUntil - nowTick) / 1000));
+  const sprayCountdownSeconds =
+    spraySession?.status === 'RUNNING' && spraySession.nextDropAt
+      ? Math.max(0, Math.ceil((spraySession.nextDropAt - nowTick) / 1000))
+      : 0;
+
+  useEffect(() => {
+    if (cooldownSecondsLeft === 0 && spraySession?.status !== 'RUNNING') return;
+    const id = window.setInterval(() => setNowTick(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [cooldownSecondsLeft, spraySession?.status]);
+
+  useEffect(() => {
+    return () => {
+      if (sprayTimerRef.current !== null) {
+        window.clearTimeout(sprayTimerRef.current);
+      }
+    };
+  }, []);
+
+  const hasActiveJob = jobs.some((j) =>
+    ['RUNNING', 'SCHEDULED', 'PAUSED'].includes(String(j.status || '').toUpperCase()),
+  );
+
   useEffect(() => {
     if (!token) return;
     void refreshSession(token);
+  }, [token, refreshSession]);
+
+  useEffect(() => {
+    if (!token) return;
+    const intervalMs = hasActiveJob || spraySession?.status === 'RUNNING' ? 3000 : 15000;
     const id = window.setInterval(() => {
       void refreshSession(token);
-    }, 3000);
+    }, intervalMs);
     return () => window.clearInterval(id);
-  }, [token, refreshSession]);
+  }, [token, hasActiveJob, spraySession?.status, refreshSession]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -235,6 +312,10 @@ export function MemberTreasuryPage() {
   const handleSingleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token) return;
+    if (cooldownSecondsLeft > 0) {
+      notify(`Cooldown active — please wait ${cooldownSecondsLeft}s before starting another transfer.`, 'error');
+      return;
+    }
     const amt = parseNairaAmount(singleAmount);
     if (!recipient.trim() || amt <= 0) {
       notify('Enter a valid recipient username and transfer amount.', 'error');
@@ -249,6 +330,7 @@ export function MemberTreasuryPage() {
         pin: singlePin.trim() || undefined,
       });
       if (res.ok) {
+        startCooldown();
         setSingleAmount('');
         setSingleSchedule('');
         notify(
@@ -271,6 +353,10 @@ export function MemberTreasuryPage() {
   const handleBatchSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token) return;
+    if (cooldownSecondsLeft > 0) {
+      notify(`Cooldown active — please wait ${cooldownSecondsLeft}s before starting another transfer.`, 'error');
+      return;
+    }
     const recipients = bulkRecipients
       .split(/\r?\n|,/)
       .map((s) => s.trim())
@@ -289,6 +375,7 @@ export function MemberTreasuryPage() {
         pin: bulkPin.trim() || undefined,
       });
       if (res.ok) {
+        startCooldown();
         setBulkRecipients('');
         setBulkSchedule('');
         notify(
@@ -306,6 +393,136 @@ export function MemberTreasuryPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const executeSprayDrop = useCallback(
+    async (sessionState: AutoSpraySession, activeToken: string) => {
+      const remaining = Math.max(0, sessionState.totalBudget - sessionState.sentSoFar);
+      if (remaining <= 0) {
+        setSpraySession({ ...sessionState, status: 'COMPLETED', nextDropAt: null });
+        notify(`Auto-Spray completed (${formatNaira(sessionState.totalBudget)} sent)!`, 'success');
+        return;
+      }
+
+      const dropTotal = Math.min(remaining, sessionState.dropPerMin, MAX_SPRAY_PER_MINUTE);
+      const recipients = sessionState.recipients;
+      const perUser = Math.max(1, Math.floor(dropTotal / recipients.length));
+
+      const res =
+        recipients.length === 1
+          ? await sendSingleTransfer(activeToken, {
+              to: recipients[0],
+              amount: dropTotal,
+              pin: sessionState.pin || undefined,
+            })
+          : await sendBatchTransfer(activeToken, {
+              recipients,
+              amountPerUser: perUser,
+              pin: sessionState.pin || undefined,
+            });
+
+      if (!res.ok) {
+        setSpraySession({ ...sessionState, status: 'STOPPED', nextDropAt: null });
+        notify(res.data.error || 'Auto-Spray paused due to transfer error.', 'error');
+        return;
+      }
+
+      const deliveredThisDrop =
+        recipients.length === 1 ? dropTotal : perUser * recipients.length;
+      const nextSent = Math.min(
+        sessionState.totalBudget,
+        sessionState.sentSoFar + deliveredThisDrop,
+      );
+      const nextDrops = sessionState.dropsCompleted + 1;
+      await refreshSession(activeToken);
+
+      if (nextSent >= sessionState.totalBudget) {
+        setSpraySession({
+          ...sessionState,
+          sentSoFar: nextSent,
+          dropsCompleted: nextDrops,
+          status: 'COMPLETED',
+          nextDropAt: null,
+        });
+        notify(`Auto-Spray completed — ${formatNaira(nextSent)} delivered!`, 'success');
+        return;
+      }
+
+      const nextDropAt = Date.now() + TRANSFER_COOLDOWN_MS;
+      const updatedSession: AutoSpraySession = {
+        ...sessionState,
+        sentSoFar: nextSent,
+        dropsCompleted: nextDrops,
+        nextDropAt,
+        status: 'RUNNING',
+      };
+      setSpraySession(updatedSession);
+      setNowTick(Date.now());
+
+      sprayTimerRef.current = window.setTimeout(() => {
+        void executeSprayDrop(updatedSession, activeToken);
+      }, TRANSFER_COOLDOWN_MS);
+    },
+    [refreshSession],
+  );
+
+  const handleStartAutoSpray = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token) return;
+    if (spraySession?.status === 'RUNNING') {
+      notify('An Auto-Spray session is already running. Stop it first to start a new one.', 'error');
+      return;
+    }
+    if (cooldownSecondsLeft > 0) {
+      notify(`Cooldown active — please wait ${cooldownSecondsLeft}s before starting Auto-Spray.`, 'error');
+      return;
+    }
+
+    const recipients = sprayRecipients
+      .split(/\r?\n|,/)
+      .map((s) => s.trim().replace(/^@/, ''))
+      .filter(Boolean);
+    const totalBudget = parseNairaAmount(sprayTotal);
+    const requestedDrop = parseNairaAmount(sprayPerMin);
+    const cappedDrop = Math.min(requestedDrop, MAX_SPRAY_PER_MINUTE);
+
+    if (recipients.length === 0 || totalBudget <= 0 || cappedDrop <= 0) {
+      notify('Enter recipient(s), total spray budget, and a valid drop amount (max 100B/min).', 'error');
+      return;
+    }
+
+    const initialSession: AutoSpraySession = {
+      recipients,
+      totalBudget,
+      dropPerMin: cappedDrop,
+      sentSoFar: 0,
+      dropsCompleted: 0,
+      nextDropAt: null,
+      status: 'RUNNING',
+      startedAt: new Date().toISOString(),
+      pin: sprayPin.trim() || undefined,
+    };
+
+    setSubmitting(true);
+    setSpraySession(initialSession);
+    startCooldown();
+    notify(
+      `Auto-Spray started: ${formatNaira(totalBudget)} at ${formatNaira(cappedDrop)}/min.`,
+      'info',
+    );
+    await executeSprayDrop(initialSession, token);
+    setSubmitting(false);
+  };
+
+  const handleStopAutoSpray = () => {
+    if (sprayTimerRef.current !== null) {
+      window.clearTimeout(sprayTimerRef.current);
+      sprayTimerRef.current = null;
+    }
+    setSpraySession((prev) =>
+      prev ? { ...prev, status: 'STOPPED', nextDropAt: null } : null,
+    );
+    notify('Auto-Spray stopped.', 'info');
   };
 
   const handleDonateTip = async () => {
@@ -507,31 +724,49 @@ export function MemberTreasuryPage() {
 
           {/* Transfer Form Card */}
           <div className="border hairline-border bg-brand-charcoal p-6 sm:p-8">
-            <div className="grid grid-cols-2 border hairline-border bg-brand-black p-1 max-w-md">
-              <button
-                type="button"
-                onClick={() => setMode('single')}
-                className={`inline-flex cursor-pointer items-center justify-center gap-2 py-2 font-body text-xs tracking-[0.14em] uppercase transition-colors ${
-                  mode === 'single'
-                    ? 'bg-brand-gold text-brand-black font-semibold'
-                    : 'text-brand-muted hover:text-brand-white'
-                }`}
-              >
-                <Send className="h-3.5 w-3.5" />
-                Single Send
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode('batch')}
-                className={`inline-flex cursor-pointer items-center justify-center gap-2 py-2 font-body text-xs tracking-[0.14em] uppercase transition-colors ${
-                  mode === 'batch'
-                    ? 'bg-brand-gold text-brand-black font-semibold'
-                    : 'text-brand-muted hover:text-brand-white'
-                }`}
-              >
-                <Users className="h-3.5 w-3.5" />
-                Bulk Send
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="grid grid-cols-3 border hairline-border bg-brand-black p-1 w-full max-w-lg">
+                <button
+                  type="button"
+                  onClick={() => setMode('single')}
+                  className={`inline-flex cursor-pointer items-center justify-center gap-1.5 py-2 font-body text-xs tracking-[0.12em] uppercase transition-colors ${
+                    mode === 'single'
+                      ? 'bg-brand-gold text-brand-black font-semibold'
+                      : 'text-brand-muted hover:text-brand-white'
+                  }`}
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  Single
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode('batch')}
+                  className={`inline-flex cursor-pointer items-center justify-center gap-1.5 py-2 font-body text-xs tracking-[0.12em] uppercase transition-colors ${
+                    mode === 'batch'
+                      ? 'bg-brand-gold text-brand-black font-semibold'
+                      : 'text-brand-muted hover:text-brand-white'
+                  }`}
+                >
+                  <Users className="h-3.5 w-3.5" />
+                  Bulk
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode('spray')}
+                  className={`inline-flex cursor-pointer items-center justify-center gap-1.5 py-2 font-body text-xs tracking-[0.12em] uppercase transition-colors ${
+                    mode === 'spray'
+                      ? 'bg-brand-gold text-brand-black font-semibold'
+                      : 'text-brand-muted hover:text-brand-white'
+                  }`}
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Auto Spray
+                </button>
+              </div>
+
+              <span className="border hairline-border bg-brand-black px-3 py-1.5 font-mono text-[11px] text-brand-gold">
+                Standard Pace &bull; Max 100B/min &bull; 60s Cooldown
+              </span>
             </div>
 
             {mode === 'single' ? (
@@ -597,16 +832,22 @@ export function MemberTreasuryPage() {
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <Button type="submit" disabled={submitting} className="w-full sm:w-auto">
+                  <Button
+                    type="submit"
+                    disabled={submitting || cooldownSecondsLeft > 0}
+                    className="w-full sm:w-auto"
+                  >
                     {submitting
                       ? 'Submitting...'
-                      : singleSchedule
-                        ? 'Queue Scheduled Transfer'
-                        : 'Initiate Automated Transfer'}
+                      : cooldownSecondsLeft > 0
+                        ? `Cooldown (${cooldownSecondsLeft}s)`
+                        : singleSchedule
+                          ? 'Queue Scheduled Transfer'
+                          : 'Initiate Automated Transfer'}
                   </Button>
                 </div>
               </form>
-            ) : (
+            ) : mode === 'batch' ? (
               <form onSubmit={handleBatchSend} className="mt-6 space-y-5">
                 <div>
                   <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
@@ -670,14 +911,180 @@ export function MemberTreasuryPage() {
                     />
                   </div>
                 </div>
-                <Button type="submit" disabled={submitting} className="w-full sm:w-auto">
+                <Button
+                  type="submit"
+                  disabled={submitting || cooldownSecondsLeft > 0}
+                  className="w-full sm:w-auto"
+                >
                   {submitting
                     ? 'Submitting...'
-                    : bulkSchedule
-                      ? 'Queue Scheduled Bulk Send'
-                      : 'Distribute to All Recipients'}
+                    : cooldownSecondsLeft > 0
+                      ? `Cooldown (${cooldownSecondsLeft}s)`
+                      : bulkSchedule
+                        ? 'Queue Scheduled Bulk Send'
+                        : 'Distribute to All Recipients'}
                 </Button>
               </form>
+            ) : (
+              <div className="mt-6 space-y-5">
+                {spraySession && (
+                  <div className="border border-brand-gold/50 bg-brand-black p-4 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="font-heading text-xs tracking-[0.16em] text-brand-gold uppercase">
+                          Auto-Spray {spraySession.status} &bull; {formatNaira(spraySession.dropPerMin)}/min
+                        </p>
+                        <p className="mt-1 font-mono text-xs text-brand-cream">
+                          Sent {formatNaira(spraySession.sentSoFar)} / {formatNaira(spraySession.totalBudget)} (
+                          {Math.min(
+                            100,
+                            Math.round((spraySession.sentSoFar / Math.max(1, spraySession.totalBudget)) * 100),
+                          )}
+                          %) &bull; {spraySession.dropsCompleted} drop(s)
+                          {spraySession.status === 'RUNNING' && sprayCountdownSeconds > 0
+                            ? ` • Next drop in ${sprayCountdownSeconds}s`
+                            : ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {spraySession.status === 'RUNNING' && (
+                          <button
+                            type="button"
+                            onClick={handleStopAutoSpray}
+                            className="inline-flex cursor-pointer items-center gap-1.5 border border-rose-500 bg-rose-600 px-3 py-1.5 font-heading text-[0.68rem] font-semibold tracking-[0.14em] text-white uppercase hover:bg-rose-500"
+                          >
+                            <Square className="h-3 w-3 fill-current" />
+                            Stop Spray
+                          </button>
+                        )}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={() =>
+                            setActiveReceipt({
+                              title: 'Auto-Spray Delivery Receipt',
+                              reference: `SPR-${Date.now().toString(36).slice(-6).toUpperCase()}`,
+                              recipient: spraySession.recipients.join(', '),
+                              senders: account?.user ? [account.user] : [],
+                              totalAmount: spraySession.totalBudget,
+                              sentAmount: spraySession.sentSoFar,
+                              status: spraySession.status,
+                              timestamp: spraySession.startedAt,
+                              txCount: spraySession.dropsCompleted,
+                              note: `Paced at ${formatNaira(spraySession.dropPerMin)}/min across ${spraySession.recipients.length} recipient(s).`,
+                            })
+                          }
+                        >
+                          <Receipt className="h-3.5 w-3.5 text-brand-gold" />
+                          Spray Receipt
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden bg-brand-charcoal">
+                      <div
+                        className="h-full bg-brand-gold transition-all"
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            Math.round((spraySession.sentSoFar / Math.max(1, spraySession.totalBudget)) * 100),
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <form onSubmit={handleStartAutoSpray} className="space-y-5">
+                  <div>
+                    <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
+                      Spray Recipient(s) (1 or multiple handles, comma or newline separated)
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={sprayRecipients}
+                      onChange={(e) => setSprayRecipients(e.target.value)}
+                      placeholder={'@winner1\n@winner2'}
+                      className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-mono text-xs text-brand-white focus:border-brand-gold focus:outline-none"
+                    />
+                  </div>
+                  <div className="grid gap-5 md:grid-cols-3">
+                    <div>
+                      <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
+                        Total Spray Budget (₦)
+                      </label>
+                      <input
+                        type="text"
+                        value={sprayTotal}
+                        onChange={(e) => setSprayTotal(e.target.value)}
+                        placeholder="e.g. 500B, 1T"
+                        className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-mono text-sm text-brand-white focus:border-brand-gold focus:outline-none"
+                      />
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {SPRAY_TOTAL_CHIPS.map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => setSprayTotal(c)}
+                            className="cursor-pointer border hairline-border bg-brand-black px-2 py-0.5 font-mono text-xs text-brand-cream hover:border-brand-gold hover:text-brand-gold"
+                          >
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
+                        Drop Per Minute (Max 100B)
+                      </label>
+                      <input
+                        type="text"
+                        value={sprayPerMin}
+                        onChange={(e) => setSprayPerMin(e.target.value)}
+                        placeholder="Max 100B"
+                        className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-mono text-sm text-brand-white focus:border-brand-gold focus:outline-none"
+                      />
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {SPRAY_DROP_CHIPS.map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => setSprayPerMin(c)}
+                            className="cursor-pointer border hairline-border bg-brand-black px-2 py-0.5 font-mono text-xs text-brand-cream hover:border-brand-gold hover:text-brand-gold"
+                          >
+                            {c}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
+                        Transaction PIN (Optional)
+                      </label>
+                      <input
+                        type="password"
+                        value={sprayPin}
+                        onChange={(e) => setSprayPin(e.target.value)}
+                        placeholder="4-digit PIN"
+                        maxLength={8}
+                        className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-mono text-sm text-brand-white focus:border-brand-gold focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    type="submit"
+                    disabled={submitting || cooldownSecondsLeft > 0 || spraySession?.status === 'RUNNING'}
+                    className="w-full sm:w-auto"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    {spraySession?.status === 'RUNNING'
+                      ? 'Auto-Spray Running...'
+                      : cooldownSecondsLeft > 0
+                        ? `Cooldown (${cooldownSecondsLeft}s)`
+                        : 'Start Auto-Spray (Max 100B/min)'}
+                  </Button>
+                </form>
+              </div>
             )}
           </div>
 
@@ -754,6 +1161,28 @@ export function MemberTreasuryPage() {
                               Stop
                             </Button>
                           )}
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() =>
+                              setActiveReceipt({
+                                title: 'VATAR Treasury Transfer Receipt',
+                                reference: `TRS-${job.id.slice(0, 8).toUpperCase()}`,
+                                recipient: (job.targetLabel || job.target || 'recipient').replace(/^@/, ''),
+                                senders: account?.user ? [account.user] : [],
+                                totalAmount: Number(job.total || 0),
+                                sentAmount: delivered,
+                                status: String(job.status || 'COMPLETED').toUpperCase(),
+                                timestamp: new Date().toISOString(),
+                                txCount: job.txCount ?? null,
+                                note: recentLogs.length > 0 ? recentLogs[recentLogs.length - 1] : null,
+                              })
+                            }
+                            className="inline-flex items-center gap-1"
+                          >
+                            <Receipt className="h-3.5 w-3.5 text-brand-gold" />
+                            Receipt
+                          </Button>
                         </div>
                       </div>
 
@@ -971,6 +1400,11 @@ export function MemberTreasuryPage() {
           </div>
         </div>
       )}
+
+      <TransferReceiptModal
+        receipt={activeReceipt}
+        onClose={() => setActiveReceipt(null)}
+      />
     </PageContainer>
   );
 }
