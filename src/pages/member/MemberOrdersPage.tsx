@@ -7,6 +7,7 @@ import {
   ClipboardList,
   Clock,
   Loader2,
+  Receipt,
   RefreshCw,
   Send,
   X,
@@ -14,6 +15,10 @@ import {
 import { Link } from 'react-router-dom';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { EmptyState } from '@/components/shared/EmptyState';
+import {
+  TransferReceiptModal,
+  type TransferReceiptData,
+} from '@/components/shared/TransferReceiptModal';
 import { Button } from '@/components/ui/Button';
 import { OrderStatusBadge } from '@/features/marketplace/components/MarketplaceBadges';
 import { MarketplaceSafetyBanner } from '@/features/marketplace/components/MarketplaceSafetyBanner';
@@ -62,6 +67,7 @@ export function MemberOrdersPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [activeReceipt, setActiveReceipt] = useState<TransferReceiptData | null>(null);
 
   // Expanded order timeline
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
@@ -405,6 +411,35 @@ export function MemberOrdersPage() {
 
                     {/* Role-Gated Action Buttons */}
                     <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() =>
+                          setActiveReceipt({
+                            title: order.listing_title,
+                            reference: `ORD-${order.id.slice(0, 8).toUpperCase()}`,
+                            recipient:
+                              order.recipient_lagos_life_username || order.buyer_username,
+                            senders: [order.seller_username],
+                            totalAmount:
+                              order.requested_game_currency_amount ??
+                              order.agreed_price_amount,
+                            sentAmount:
+                              order.status === 'buyer_confirmed' ||
+                              order.status === 'seller_marked_sent'
+                                ? (order.requested_game_currency_amount ??
+                                  order.agreed_price_amount)
+                                : 0,
+                            status: order.status.replace(/_/g, ' ').toUpperCase(),
+                            timestamp: order.updated_at || order.created_at,
+                            priceNgn: order.agreed_price_amount,
+                            note: order.seller_note || order.buyer_note,
+                          })
+                        }
+                      >
+                        <Receipt className="h-3.5 w-3.5 text-brand-gold" />
+                        Receipt
+                      </Button>
                       {isBuyer &&
                         (order.status === 'requested' || order.status === 'accepted') && (
                           <Button
@@ -790,6 +825,10 @@ export function MemberOrdersPage() {
           </div>
         </div>
       )}
+      <TransferReceiptModal
+        receipt={activeReceipt}
+        onClose={() => setActiveReceipt(null)}
+      />
     </div>
   );
 }

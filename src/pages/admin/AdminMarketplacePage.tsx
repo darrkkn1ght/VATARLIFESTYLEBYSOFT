@@ -6,6 +6,7 @@ import {
   ClipboardList,
   Clock,
   Loader2,
+  Receipt,
   RefreshCw,
   ShieldAlert,
   Store,
@@ -15,6 +16,10 @@ import { PageContainer } from '@/components/layout/PageContainer';
 import { CategoryFilter } from '@/components/shared/CategoryFilter';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { SearchInput } from '@/components/shared/SearchInput';
+import {
+  TransferReceiptModal,
+  type TransferReceiptData,
+} from '@/components/shared/TransferReceiptModal';
 import { Button } from '@/components/ui/Button';
 import {
   DisputeStatusBadge,
@@ -102,6 +107,7 @@ export function AdminMarketplacePage() {
 
   // Order event inspector
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
+  const [activeReceipt, setActiveReceipt] = useState<TransferReceiptData | null>(null);
   const [orderEvents, setOrderEvents] = useState<
     Record<string, MarketplaceOrderEventRecord[]>
   >({});
@@ -581,14 +587,45 @@ export function AdminMarketplacePage() {
                           </p>
                         </div>
 
-                        <Button
-                          variant="subtle"
-                          size="sm"
-                          onClick={() => void toggleOrderEvents(order.id)}
-                        >
-                          <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-                          {isExpanded ? 'Hide Events' : 'Inspect Events'}
-                        </Button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() =>
+                              setActiveReceipt({
+                                title: listingTitle,
+                                reference: `ORD-${order.id.slice(0, 8).toUpperCase()}`,
+                                recipient:
+                                  order.recipient_lagos_life_username || buyerUsername,
+                                senders: [sellerUsername],
+                                totalAmount:
+                                  order.requested_game_currency_amount ??
+                                  order.agreed_price_amount,
+                                sentAmount:
+                                  order.status === 'buyer_confirmed' ||
+                                  order.status === 'seller_marked_sent'
+                                    ? (order.requested_game_currency_amount ??
+                                      order.agreed_price_amount)
+                                    : 0,
+                                status: order.status.replace(/_/g, ' ').toUpperCase(),
+                                timestamp: order.updated_at || order.created_at,
+                                priceNgn: order.agreed_price_amount,
+                                note: order.seller_note || order.buyer_note,
+                              })
+                            }
+                          >
+                            <Receipt className="h-3.5 w-3.5 text-brand-gold" />
+                            Receipt
+                          </Button>
+                          <Button
+                            variant="subtle"
+                            size="sm"
+                            onClick={() => void toggleOrderEvents(order.id)}
+                          >
+                            <Clock className="h-3.5 w-3.5" aria-hidden="true" />
+                            {isExpanded ? 'Hide Events' : 'Inspect Events'}
+                          </Button>
+                        </div>
                       </div>
 
                       {isExpanded && (
@@ -805,6 +842,10 @@ export function AdminMarketplacePage() {
           </div>
         </div>
       )}
+      <TransferReceiptModal
+        receipt={activeReceipt}
+        onClose={() => setActiveReceipt(null)}
+      />
     </div>
   );
 }

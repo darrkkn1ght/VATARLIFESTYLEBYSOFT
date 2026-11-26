@@ -8,10 +8,15 @@ import {
   ExternalLink,
   Loader2,
   MessageCircle,
+  Receipt,
   RefreshCw,
   Send,
   X,
 } from 'lucide-react';
+import {
+  TransferReceiptModal,
+  type TransferReceiptData,
+} from '@/components/shared/TransferReceiptModal';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import {
@@ -61,6 +66,7 @@ export function MemberMoneyPacksSection() {
   const [submitting, setSubmitting] = useState(false);
 
   const [activeOrder, setActiveOrder] = useState<MoneyPackOrderRecord | null>(null);
+  const [activeReceipt, setActiveReceipt] = useState<TransferReceiptData | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
 
@@ -502,15 +508,45 @@ export function MemberMoneyPacksSection() {
                       onClick={() => setActiveOrder(order)}
                       className="cursor-pointer font-heading text-[0.65rem] tracking-[0.14em] text-brand-gold uppercase hover:underline"
                     >
-                      Pay / Receipt
+                      Pay
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveReceipt({
+                        title: `Money Pack — ${order.pack_label}`,
+                        reference: order.order_code,
+                        recipient: order.lagos_life_username,
+                        senders: ['VATAR Official Store'],
+                        totalAmount: order.in_game_amount,
+                        sentAmount:
+                          order.status === 'completed' ? order.in_game_amount : 0,
+                        status: MONEY_PACK_STATUS_LABELS[order.status],
+                        timestamp:
+                          order.completed_at ||
+                          order.payment_submitted_at ||
+                          order.created_at,
+                        priceNgn: order.total_price_ngn,
+                        note: order.admin_note,
+                      })
+                    }
+                    className="inline-flex cursor-pointer items-center gap-1 border hairline-border bg-brand-charcoal px-2 py-0.5 font-heading text-[0.62rem] tracking-[0.12em] text-brand-cream uppercase hover:border-brand-gold hover:text-brand-gold"
+                  >
+                    <Receipt className="h-3 w-3 text-brand-gold" />
+                    Receipt
+                  </button>
                 </div>
               </div>
             ))}
           </div>
         </div>
       )}
+
+      <TransferReceiptModal
+        receipt={activeReceipt}
+        onClose={() => setActiveReceipt(null)}
+      />
     </section>
   );
 }
