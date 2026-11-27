@@ -2,6 +2,11 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { AlertCircle, Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import {
+  formatGameFundsShort,
+  parseGameFundsInput,
+  parseRealPriceInput,
+} from '@/features/marketplace/services/marketplaceService';
+import {
   MARKETPLACE_CATEGORY_LABELS,
   type ListingFormValues,
 } from '@/features/marketplace/types/marketplace.types';
@@ -10,6 +15,9 @@ import type {
   MarketplaceListingStatus,
   MarketplaceListingWithSellerRow,
 } from '@/lib/supabase/database.types';
+import { cn } from '@/lib/utilities/cn';
+
+const GAME_FUNDS_PRESETS = ['100B', '500B', '1T', '5T', '10T', '50T'] as const;
 
 interface ListingFormModalProps {
   isOpen: boolean;
@@ -47,9 +55,9 @@ function buildInitial(
     title: listing.title,
     description: listing.description,
     priceAmount: String(listing.price_amount),
-    priceCurrency: listing.price_currency,
+    priceCurrency: listing.price_currency || 'NGN',
     gameCurrencyAmount: listing.game_currency_amount
-      ? String(listing.game_currency_amount)
+      ? formatGameFundsShort(listing.game_currency_amount)
       : '',
     sellerContactNote: listing.seller_contact_note ?? '',
     status: listing.status,
@@ -77,6 +85,12 @@ export function ListingFormModal({
 
   if (!isOpen) return null;
 
+  const parsedGameQty = values.gameCurrencyAmount.trim()
+    ? parseGameFundsInput(values.gameCurrencyAmount)
+    : null;
+  const parsedRealPrice = parseRealPriceInput(values.priceAmount);
+  const currencySymbol = values.priceCurrency === 'USD' ? '$' : '₦';
+
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setLocalError(null);
@@ -89,22 +103,26 @@ export function ListingFormModal({
       setLocalError('Description must be at least 10 characters.');
       return;
     }
-    const price = Number(values.priceAmount);
-    if (!Number.isFinite(price) || price <= 0) {
-      setLocalError('Enter a valid asking price greater than 0.');
+    if (!parsedRealPrice || parsedRealPrice <= 0) {
+      setLocalError('Enter the real-money price the buyer pays (e.g. 1500).');
       return;
     }
     if (values.category === 'lagos_life_funds') {
-      const qty = Number.parseInt(values.gameCurrencyAmount, 10);
-      if (!Number.isFinite(qty) || qty <= 0) {
+      if (!parsedGameQty || parsedGameQty <= 0) {
         setLocalError(
-          'Lagos Life Game Funds listings require a positive game-currency quantity.',
+          'Select or type how much Game Funds you are selling (e.g. 100B, 500B, or 1T).',
         );
         return;
       }
+    } else if (values.gameCurrencyAmount.trim() && !parsedGameQty) {
+      setLocalError('Enter a valid Game Funds quantity such as 100B or 1T.');
+      return;
     }
 
-    await onSubmit(values);
+    await onSubmit({
+      ...values,
+      priceAmount: String(parsedRealPrice),
+    });
   };
 
   const displayError = localError ?? error;
@@ -128,18 +146,18 @@ export function ListingFormModal({
         </button>
 
         <p className="heading-eyebrow">
-          {editingListing ? 'Edit Listing' : 'Submit New Listing'}
+          {editingListing ? 'Edit Vendor Listing' : 'New Vendor Listing'}
         </p>
         <h2
           id="listing-modal-title"
           className="heading-section mt-2 text-2xl text-brand-white"
         >
-          {editingListing ? editingListing.title : 'Create Marketplace Listing'}
+          {editingListing ? editingListing.title : 'Create Vendor Listing'}
         </h2>
         <p className="mt-2 font-body text-xs text-brand-muted">
           {editingListing
-            ? 'Updates apply directly to your eligible listing.'
-            : 'All new listings enter pending moderation before becoming visible to the community.'}
+            ? 'Updates apply directly to your listing.'
+            : 'Once approved by Admin, buyers can order from your Vendor Page and chat with you directly inside the site.'}
         </p>
 
         {displayError && (
@@ -225,69 +243,39 @@ export function ListingFormModal({
               onChange={(e) =>
                 setValues((prev) => ({ ...prev, title: e.target.value }))
               }
-              placeholder="e.g., 50B Lagos Life Funds — Fast Manual Delivery"
+              placeholder="e.g., 1T Lagos Life Funds — Instant Delivery"
               className="mt-2 w-full border hairline-border bg-brand-black px-3.5 py-2.5 text-sm text-brand-white focus:border-brand-gold focus:outline-none"
             />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div>
-              <label
-                htmlFor="listing-price"
-                className="block font-heading text-xs tracking-[0.18em] text-brand-cream uppercase"
-              >
-                Asking Price
-              </label>
-              <input
-                id="listing-price"
-                type="number"
-                step="0.01"
-                min="0.01"
-                required
-                disabled={isSubmitting}
-                value={values.priceAmount}
-                onChange={(e) =>
-                  setValues((prev) => ({ ...prev, priceAmount: e.target.value }))
-                }
-                placeholder="25000"
-                className="mt-2 w-full border hairline-border bg-brand-black px-3.5 py-2.5 text-sm text-brand-white focus:border-brand-gold focus:outline-none"
-              />
-            </div>
+          {/* 1. IN-GAME FUNDS QUANTITY (when selling Lagos Life Game Funds) */}
+          {values.category === 'lagos_life_funds' && (
+            <div className="border hairline-border bg-brand-black/55 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <label
+                  htmlFor="listing-game-qty"
+                  className="block font-heading text-xs tracking-[0.16em] text-brand-gold uppercase"
+                >
+                  1. In-Game Funds Buyer Receives
+                </label>
+                {parsedGameQty && (
+                  <span className="border border-brand-gold/40 bg-brand-gold/15 px-2 py-0.5 font-mono text-[11px] text-brand-gold">
+                    {formatGameFundsShort(parsedGameQty)} Game Funds
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 font-body text-[11px] text-brand-muted">
+                How much LagosLife in-game currency you are selling in this pack (type{' '}
+                <strong className="text-brand-cream">100B</strong>,{' '}
+                <strong className="text-brand-cream">500B</strong>,{' '}
+                <strong className="text-brand-cream">1T</strong>, etc. or tap below).
+              </p>
 
-            <div>
-              <label
-                htmlFor="listing-currency"
-                className="block font-heading text-xs tracking-[0.18em] text-brand-cream uppercase"
-              >
-                Currency
-              </label>
-              <input
-                id="listing-currency"
-                type="text"
-                maxLength={10}
-                required
-                disabled={isSubmitting}
-                value={values.priceCurrency}
-                onChange={(e) =>
-                  setValues((prev) => ({ ...prev, priceCurrency: e.target.value }))
-                }
-                placeholder="NGN"
-                className="mt-2 w-full border hairline-border bg-brand-black px-3.5 py-2.5 text-sm text-brand-white uppercase focus:border-brand-gold focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="listing-game-qty"
-                className="block font-heading text-xs tracking-[0.18em] text-brand-cream uppercase"
-              >
-                Game Funds Qty
-              </label>
               <input
                 id="listing-game-qty"
-                type="number"
-                min="1"
-                required={values.category === 'lagos_life_funds'}
+                type="text"
+                inputMode="text"
+                required
                 disabled={isSubmitting}
                 value={values.gameCurrencyAmount}
                 onChange={(e) =>
@@ -296,13 +284,120 @@ export function ListingFormModal({
                     gameCurrencyAmount: e.target.value,
                   }))
                 }
-                placeholder={
-                  values.category === 'lagos_life_funds' ? 'Required' : 'Optional'
+                placeholder="e.g. 100B, 500B, 1T, 5T"
+                className="mt-2.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-mono text-sm text-brand-white focus:border-brand-gold focus:outline-none"
+              />
+
+              <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                <span className="mr-1 font-heading text-[10px] tracking-[0.14em] text-brand-muted uppercase">
+                  Tap Amount:
+                </span>
+                {GAME_FUNDS_PRESETS.map((preset) => {
+                  const isSelected =
+                    values.gameCurrencyAmount.trim().toUpperCase() === preset;
+                  return (
+                    <button
+                      key={preset}
+                      type="button"
+                      disabled={isSubmitting}
+                      onClick={() =>
+                        setValues((prev) => ({
+                          ...prev,
+                          gameCurrencyAmount: preset,
+                        }))
+                      }
+                      className={cn(
+                        'cursor-pointer border px-2.5 py-1 font-mono text-xs transition-colors',
+                        isSelected
+                          ? 'border-brand-gold bg-brand-gold font-semibold text-brand-black'
+                          : 'hairline-border bg-brand-charcoal text-brand-cream hover:border-brand-gold hover:text-brand-gold',
+                      )}
+                    >
+                      {preset}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 2. REAL-MONEY BANK PRICE BUYER PAYS */}
+          <div className="border hairline-border bg-brand-black/55 p-4">
+            <label
+              htmlFor="listing-price"
+              className="block font-heading text-xs tracking-[0.16em] text-brand-cream uppercase"
+            >
+              {values.category === 'lagos_life_funds'
+                ? '2. Real-Money Price Buyer Pays You'
+                : 'Real-Money Price Buyer Pays You'}
+            </label>
+            <p className="mt-1 font-body text-[11px] text-brand-muted">
+              How much real cash (bank transfer) the buyer pays for this listing — e.g.{' '}
+              <strong className="text-brand-cream">1500</strong> means{' '}
+              <strong className="text-brand-gold">₦1,500</strong>.
+            </p>
+
+            <div className="mt-2.5 flex items-stretch gap-2">
+              <select
+                aria-label="Payment currency"
+                disabled={isSubmitting}
+                value={values.priceCurrency}
+                onChange={(e) =>
+                  setValues((prev) => ({ ...prev, priceCurrency: e.target.value }))
                 }
-                className="mt-2 w-full border hairline-border bg-brand-black px-3.5 py-2.5 text-sm text-brand-white focus:border-brand-gold focus:outline-none"
+                className="w-28 shrink-0 border hairline-border bg-brand-charcoal px-2.5 py-2.5 font-heading text-xs tracking-[0.12em] text-brand-gold uppercase focus:border-brand-gold focus:outline-none"
+              >
+                <option value="NGN">₦ NGN</option>
+                <option value="USD">$ USD</option>
+              </select>
+
+              <input
+                id="listing-price"
+                type="text"
+                inputMode="decimal"
+                required
+                disabled={isSubmitting}
+                value={values.priceAmount}
+                onChange={(e) =>
+                  setValues((prev) => ({ ...prev, priceAmount: e.target.value }))
+                }
+                placeholder={values.priceCurrency === 'USD' ? 'e.g. 10' : 'e.g. 1500'}
+                className="w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-mono text-sm text-brand-white focus:border-brand-gold focus:outline-none"
               />
             </div>
           </div>
+
+          {/* LIVE CLEAR DEAL PREVIEW */}
+          {parsedRealPrice && (values.category !== 'lagos_life_funds' || parsedGameQty) && (
+            <div className="border border-brand-gold/45 bg-brand-gold/10 px-4 py-3 text-xs text-brand-cream">
+              <span className="font-heading tracking-[0.14em] text-brand-gold uppercase">
+                Listing Summary:{' '}
+              </span>
+              {values.category === 'lagos_life_funds' && parsedGameQty ? (
+                <>
+                  Buyer receives{' '}
+                  <strong className="text-brand-white">
+                    {formatGameFundsShort(parsedGameQty)} LagosLife Funds
+                  </strong>{' '}
+                  &rarr; Buyer pays you{' '}
+                  <strong className="text-brand-gold">
+                    {currencySymbol}
+                    {parsedRealPrice.toLocaleString()} ({values.priceCurrency})
+                  </strong>{' '}
+                  in real money.
+                </>
+              ) : (
+                <>
+                  Buyer pays you{' '}
+                  <strong className="text-brand-gold">
+                    {currencySymbol}
+                    {parsedRealPrice.toLocaleString()} ({values.priceCurrency})
+                  </strong>{' '}
+                  for <strong className="text-brand-white">{values.title || 'this item'}</strong>.
+                </>
+              )}
+            </div>
+          )}
 
           <div>
             <label
@@ -320,7 +415,7 @@ export function ListingFormModal({
               onChange={(e) =>
                 setValues((prev) => ({ ...prev, description: e.target.value }))
               }
-              placeholder="Describe what you are offering, delivery timing, and terms..."
+              placeholder="Describe your delivery speed, availability, and terms..."
               className="mt-2 w-full resize-y border hairline-border bg-brand-black p-3 text-sm text-brand-white focus:border-brand-gold focus:outline-none"
             />
           </div>
@@ -330,7 +425,7 @@ export function ListingFormModal({
               htmlFor="listing-contact"
               className="block font-heading text-xs tracking-[0.18em] text-brand-cream uppercase"
             >
-              Seller Contact Note (Optional)
+              Payment / Chat Note (Optional)
             </label>
             <input
               id="listing-contact"
@@ -341,7 +436,7 @@ export function ListingFormModal({
               onChange={(e) =>
                 setValues((prev) => ({ ...prev, sellerContactNote: e.target.value }))
               }
-              placeholder="How buyers should coordinate payment directly (never post PINs/passwords)"
+              placeholder="e.g., Place order to chat me directly inside the site for bank details"
               className="mt-2 w-full border hairline-border bg-brand-black px-3.5 py-2.5 text-sm text-brand-white focus:border-brand-gold focus:outline-none"
             />
           </div>

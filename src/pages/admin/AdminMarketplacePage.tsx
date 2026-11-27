@@ -37,6 +37,7 @@ import { AdminMoneyPacksPanel } from '@/features/marketplace/components/AdminMon
 import {
   fetchAdminMarketplaceOversight,
   fetchOrderEvents,
+  formatGameFundsShort,
   moderateListing,
   resolveAdminDispute,
 } from '@/features/marketplace/services/marketplaceService';
@@ -420,7 +421,7 @@ export function AdminMarketplacePage() {
                         {' • '}Price: {listing.price_currency}{' '}
                         {listing.price_amount.toLocaleString()}
                         {listing.game_currency_amount
-                          ? ` • Funds: ₦${listing.game_currency_amount.toLocaleString()}`
+                          ? ` • Funds: ₦${formatGameFundsShort(listing.game_currency_amount)}`
                           : ''}
                       </p>
                     </div>

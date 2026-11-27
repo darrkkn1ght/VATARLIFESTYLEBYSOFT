@@ -30,6 +30,7 @@ import {
   createListing,
   createPurchaseRequest,
   fetchMarketplaceListings,
+  formatGameFundsShort,
   updateOwnListing,
 } from '@/features/marketplace/services/marketplaceService';
 import {
@@ -153,13 +154,6 @@ export function MemberVendorsPage() {
   };
 
   const handleSaveListing = async (values: ListingFormValues) => {
-    const price = Number.parseFloat(values.priceAmount);
-
-    if (!Number.isFinite(price) || price <= 0) {
-      setListingError('Enter a valid price greater than zero.');
-      return;
-    }
-
     setListingError(null);
     setSavingListing(true);
 
@@ -304,20 +298,18 @@ export function MemberVendorsPage() {
                 <Store className="h-3.5 w-3.5 text-brand-gold" />
                 {myStore ? 'Edit My Store' : 'Create Vendor Page'}
               </Button>
-              {myStore && (
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => {
-                    setEditingListing(null);
-                    setListingError(null);
-                    setListingModalOpen(true);
-                  }}
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add Listing
-                </Button>
-              )}
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  setEditingListing(null);
+                  setListingError(null);
+                  setListingModalOpen(true);
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add Listing
+              </Button>
             </div>
           </div>
         </PageContainer>
@@ -443,6 +435,11 @@ export function MemberVendorsPage() {
                           </h3>
                           <p className="mt-1 font-heading text-xl font-semibold text-brand-gold">
                             {listing.price_currency} {listing.price_amount.toLocaleString()}
+                            {listing.game_currency_amount ? (
+                              <span className="ml-2 font-mono text-xs text-brand-cream">
+                                • ₦{formatGameFundsShort(listing.game_currency_amount)} Funds
+                              </span>
+                            ) : null}
                           </p>
                           <p className="mt-2 line-clamp-3 font-body text-xs leading-relaxed text-brand-muted">
                             {listing.description}
@@ -621,6 +618,11 @@ export function MemberVendorsPage() {
                           </h3>
                           <p className="mt-1 font-heading text-lg font-semibold text-brand-gold">
                             {listing.price_currency} {listing.price_amount.toLocaleString()}
+                            {listing.game_currency_amount ? (
+                              <span className="ml-2 font-mono text-xs text-brand-cream">
+                                • ₦{formatGameFundsShort(listing.game_currency_amount)} Funds
+                              </span>
+                            ) : null}
                           </p>
                           <p className="mt-1.5 line-clamp-2 font-body text-xs text-brand-muted">
                             {listing.description}

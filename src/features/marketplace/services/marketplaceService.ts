@@ -46,6 +46,74 @@ export async function fetchMarketplaceListings(
   };
 }
 
+export function parseGameFundsInput(raw: string): number | null {
+  const cleaned = raw
+    .trim()
+    .replace(/^[₦nN]+/, '')
+    .replace(/,/g, '')
+    .replace(/\s+/g, '')
+    .toUpperCase();
+
+  if (!cleaned) return null;
+
+  const match = /^(\d+(?:\.\d+)?)([KMBT])?$/.exec(cleaned);
+  if (!match) return null;
+
+  const base = Number.parseFloat(match[1]);
+  if (!Number.isFinite(base) || base <= 0) return null;
+
+  const suffix = match[2] ?? '';
+  const multiplier =
+    suffix === 'T'
+      ? 1_000_000_000_000
+      : suffix === 'B'
+        ? 1_000_000_000
+        : suffix === 'M'
+          ? 1_000_000
+          : suffix === 'K'
+            ? 1_000
+            : 1;
+
+  const result = Math.round(base * multiplier);
+  if (!Number.isFinite(result) || result <= 0 || result > 9_000_000_000_000_000) {
+    return null;
+  }
+  return result;
+}
+
+export function formatGameFundsShort(amount: number | null | undefined): string {
+  if (!amount || !Number.isFinite(amount) || amount <= 0) return '';
+  if (amount >= 1_000_000_000_000) {
+    const t = amount / 1_000_000_000_000;
+    return `${Number.isInteger(t) ? t : Number(t.toFixed(2))}T`;
+  }
+  if (amount >= 1_000_000_000) {
+    const b = amount / 1_000_000_000;
+    return `${Number.isInteger(b) ? b : Number(b.toFixed(2))}B`;
+  }
+  if (amount >= 1_000_000) {
+    const m = amount / 1_000_000;
+    return `${Number.isInteger(m) ? m : Number(m.toFixed(2))}M`;
+  }
+  if (amount >= 1_000) {
+    const k = amount / 1_000;
+    return `${Number.isInteger(k) ? k : Number(k.toFixed(2))}K`;
+  }
+  return String(Math.round(amount));
+}
+
+export function parseRealPriceInput(raw: string): number | null {
+  const cleaned = raw
+    .trim()
+    .replace(/^(NGN|USD|[₦$])\s*/i, '')
+    .replace(/,/g, '')
+    .trim();
+  if (!cleaned) return null;
+  const num = Number(cleaned);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  return Math.round(num * 100) / 100;
+}
+
 export async function createListing(
   values: ListingFormValues,
 ): Promise<{ error: string | null }> {
@@ -53,10 +121,19 @@ export async function createListing(
     return { error: supabaseConfig.errorMessage ?? 'Supabase client is not configured.' };
   }
 
-  const price = Number(values.priceAmount);
+  const price = parseRealPriceInput(values.priceAmount);
+  if (!price) {
+    return { error: 'Enter the real-money price in Naira (e.g. 1500).' };
+  }
   const gameAmount = values.gameCurrencyAmount.trim()
-    ? Number.parseInt(values.gameCurrencyAmount.trim(), 10)
+    ? parseGameFundsInput(values.gameCurrencyAmount)
     : null;
+
+  if (values.gameCurrencyAmount.trim() && gameAmount === null) {
+    return {
+      error: 'Enter a valid Game Funds quantity such as 100B, 500B, 1T, or 5T.',
+    };
+  }
 
   const { error } = await supabase.rpc('create_marketplace_listing', {
     p_category: values.category,
@@ -79,10 +156,19 @@ export async function updateOwnListing(
     return { error: supabaseConfig.errorMessage ?? 'Supabase client is not configured.' };
   }
 
-  const price = Number(values.priceAmount);
+  const price = parseRealPriceInput(values.priceAmount);
+  if (!price) {
+    return { error: 'Enter the real-money price in Naira (e.g. 1500).' };
+  }
   const gameAmount = values.gameCurrencyAmount.trim()
-    ? Number.parseInt(values.gameCurrencyAmount.trim(), 10)
+    ? parseGameFundsInput(values.gameCurrencyAmount)
     : null;
+
+  if (values.gameCurrencyAmount.trim() && gameAmount === null) {
+    return {
+      error: 'Enter a valid Game Funds quantity such as 100B, 500B, 1T, or 5T.',
+    };
+  }
 
   const { error } = await supabase.rpc('update_own_marketplace_listing', {
     p_listing_id: listingId,
