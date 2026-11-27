@@ -376,6 +376,67 @@ export type MoneyPackOrderRecord = {
   updated_at: string;
 };
 
+export type DataPlanCategory = 'daily' | 'weekly';
+
+export type DataOrderStatus =
+  | 'awaiting_transfer'
+  | 'transfer_sent'
+  | 'delivering'
+  | 'delivered'
+  | 'failed'
+  | 'rejected'
+  | 'cancelled';
+
+export type DataHubSettingsRecord = {
+  id: number;
+  receiving_lagos_life_handle: string;
+  whatsapp_number: string;
+  vtu_provider: string;
+  is_enabled: boolean;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DataPlanRecord = {
+  code: string;
+  network: string;
+  category: DataPlanCategory;
+  data_label: string;
+  validity_label: string;
+  in_game_amount: number;
+  in_game_label: string;
+  vtpass_service_id: string;
+  vtpass_variation_code: string;
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type DataOrderRecord = {
+  id: string;
+  order_code: string;
+  buyer_id: string;
+  plan_code: string;
+  network: string;
+  plan_label: string;
+  phone_number: string;
+  lagos_life_username: string;
+  in_game_amount: number;
+  in_game_label: string;
+  status: DataOrderStatus;
+  vtu_request_id: string | null;
+  vtu_reference: string | null;
+  vtu_response_note: string | null;
+  transfer_sent_at: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  delivered_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -611,6 +672,24 @@ export type Database = {
         Update: never;
         Relationships: [];
       };
+      data_hub_settings: {
+        Row: DataHubSettingsRecord;
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      data_plans: {
+        Row: DataPlanRecord;
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      data_orders: {
+        Row: DataOrderRecord;
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -809,6 +888,50 @@ export type Database = {
         Returns: MoneyPackSettingsRecord;
       };
       get_pending_money_pack_count: {
+        Args: Record<string, never>;
+        Returns: number;
+      };
+      create_data_order: {
+        Args: {
+          p_plan_code: string;
+          p_phone_number: string;
+          p_lagos_life_username?: string | null;
+        };
+        Returns: DataOrderRecord;
+      };
+      mark_data_transfer_sent: {
+        Args: { p_order_id: string };
+        Returns: DataOrderRecord;
+      };
+      cancel_data_order: {
+        Args: { p_order_id: string };
+        Returns: DataOrderRecord;
+      };
+      admin_update_data_order: {
+        Args: {
+          p_order_id: string;
+          p_new_status: 'delivering' | 'delivered' | 'failed' | 'rejected';
+          p_vtu_reference?: string | null;
+          p_vtu_response_note?: string | null;
+        };
+        Returns: DataOrderRecord;
+      };
+      admin_update_data_hub_settings: {
+        Args: {
+          p_receiving_handle: string;
+          p_whatsapp_number: string;
+          p_is_enabled?: boolean;
+        };
+        Returns: DataHubSettingsRecord;
+      };
+      admin_update_data_plan_variation: {
+        Args: {
+          p_plan_code: string;
+          p_vtpass_variation_code: string;
+        };
+        Returns: DataPlanRecord;
+      };
+      get_pending_data_orders_count: {
         Args: Record<string, never>;
         Returns: number;
       };

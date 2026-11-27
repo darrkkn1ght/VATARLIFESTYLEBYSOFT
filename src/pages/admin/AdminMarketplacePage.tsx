@@ -21,6 +21,7 @@ import {
   type TransferReceiptData,
 } from '@/components/shared/TransferReceiptModal';
 import { Button } from '@/components/ui/Button';
+import { AdminDataHubPanel } from '@/features/datahub/components/AdminDataHubPanel';
 import {
   DisputeStatusBadge,
   ListingAvailabilityBadge,
@@ -71,7 +72,7 @@ function formatDateTime(iso: string | null): string {
 
 export function AdminMarketplacePage() {
   const [activeTab, setActiveTab] = useState<
-    'money_packs' | 'listings' | 'disputes' | 'orders'
+    'money_packs' | 'data_hub' | 'listings' | 'disputes' | 'orders'
   >('money_packs');
   const [listings, setListings] = useState<MarketplaceListingWithSellerRow[]>([]);
   const [disputes, setDisputes] = useState<AdminDisputeView[]>([]);
@@ -301,6 +302,18 @@ export function AdminMarketplacePage() {
           </button>
           <button
             type="button"
+            onClick={() => setActiveTab('data_hub')}
+            className={cn(
+              'cursor-pointer border px-4 py-2.5 font-heading text-xs tracking-[0.18em] uppercase',
+              activeTab === 'data_hub'
+                ? 'border-brand-gold bg-brand-gold text-brand-black'
+                : 'hairline-border bg-brand-charcoal text-brand-muted hover:text-brand-white',
+            )}
+          >
+            Data Hub (MTN)
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab('listings')}
             className={cn(
               'cursor-pointer border px-4 py-2.5 font-heading text-xs tracking-[0.18em] uppercase',
@@ -339,6 +352,9 @@ export function AdminMarketplacePage() {
 
         {/* TAB 0: OFFICIAL MONEY PACKS & MULTI-PIPELINE SENDERS */}
         {activeTab === 'money_packs' && <AdminMoneyPacksPanel />}
+
+        {/* TAB 0B: VATAR DATA HUB (AUTOMATED VTPASS MTN DATA) */}
+        {activeTab === 'data_hub' && <AdminDataHubPanel />}
 
         {/* TAB 1: LISTINGS MODERATION */}
         {activeTab === 'listings' && (
