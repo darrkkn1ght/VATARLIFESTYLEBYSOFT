@@ -9,6 +9,7 @@ import {
   Trophy,
   User,
   Wallet,
+  Wifi,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { PageContainer } from '@/components/layout/PageContainer';
@@ -20,6 +21,7 @@ import {
 } from '@/features/announcements/components/AnnouncementBadges';
 import { fetchMemberAnnouncements } from '@/features/announcements/services/announcementService';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { ReviewsSection } from '@/features/reviews/components/ReviewsSection';
 import type { MemberAnnouncementRow } from '@/lib/supabase/database.types';
 import { ROUTES } from '@/routes/paths';
 
@@ -159,8 +161,32 @@ export function MemberOverviewPage() {
                 </Link>
               );
             })}
+            {/* VATAR Data Coming Soon Teaser */}
+            <div className="flex items-center justify-between gap-4 border border-brand-gold/45 bg-brand-charcoal/70 p-4">
+              <div className="flex items-center gap-3.5">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center border border-brand-gold/40 bg-brand-black text-brand-gold">
+                  <Wifi className="h-4 w-4" aria-hidden="true" />
+                </span>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="font-heading text-sm font-semibold tracking-[0.12em] text-brand-white uppercase">
+                      VATAR Data Hub
+                    </h2>
+                    <span className="border border-brand-gold bg-brand-gold/15 px-1.5 py-0.5 font-heading text-[0.55rem] font-semibold tracking-[0.14em] text-brand-gold uppercase">
+                      Coming Soon
+                    </span>
+                  </div>
+                  <p className="mt-0.5 font-body text-xs text-brand-muted">
+                    MTN Daily &amp; Weekly data (1GB–20GB) using LagosLife funds
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
+
+        {/* Verified Member Reviews */}
+        <ReviewsSection />
 
         {/* Compact Latest Announcements */}
         {!announcementsLoading && recentAnnouncements.length > 0 && (

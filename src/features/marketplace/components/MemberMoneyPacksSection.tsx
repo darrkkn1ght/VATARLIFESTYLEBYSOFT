@@ -3,37 +3,55 @@ import {
   AlertCircle,
   Check,
   CheckCircle2,
-  Coins,
   Copy,
+  Crown,
   ExternalLink,
   Loader2,
   MessageCircle,
   Receipt,
   RefreshCw,
   Send,
+  ShieldCheck,
+  Sparkles,
   X,
 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import {
   TransferReceiptModal,
   type TransferReceiptData,
 } from '@/components/shared/TransferReceiptModal';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { ReviewsSection } from '@/features/reviews/components/ReviewsSection';
 import {
+  buildVipWhatsAppUrl,
   buildWhatsAppReceiptUrl,
+  calculateTrillionQuoteNgn,
   cancelMoneyPackOrder,
-  createMoneyPackOrder,
+  createTrillionQuoteOrder,
   fetchMoneyPackSettings,
   fetchMyMoneyPackOrders,
+  fetchMyVipMembership,
+  formatTrillionLabel,
+  HALF_TRILLION_RATE_NGN,
+  LIVE_RATE_NGN_PER_TRILLION,
   markMoneyPackPaymentSubmitted,
+  markVipPaymentSubmitted,
+  MAX_ORDER_TRILLIONS,
+  MIN_ORDER_TRILLIONS,
   MONEY_PACK_STATUS_LABELS,
-  OFFICIAL_MONEY_PACKS,
-  type MoneyPackTier,
+  normalizeTrillions,
+  requestVipUpgrade,
+  TRILLION_PRESETS,
+  VIP_TIERS,
+  type VipTierConfig,
 } from '@/features/marketplace/services/moneyPackService';
 import type {
   MoneyPackOrderRecord,
   MoneyPackOrderStatus,
   MoneyPackSettingsRecord,
+  VipMembershipRecord,
+  VipUpgradeRequestRecord,
 } from '@/lib/supabase/database.types';
 import { cn } from '@/lib/utilities/cn';
 
@@ -54,18 +72,31 @@ function statusBadgeClass(status: MoneyPackOrderStatus): string {
 
 export function MemberMoneyPacksSection() {
   const { profile } = useAuth();
+  const [searchParams] = useSearchParams();
 
   const [settings, setSettings] = useState<MoneyPackSettingsRecord | null>(null);
   const [orders, setOrders] = useState<MoneyPackOrderRecord[]>([]);
+  const [vip, setVip] = useState<VipMembershipRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [selectedPack, setSelectedPack] = useState<MoneyPackTier>(OFFICIAL_MONEY_PACKS[4]); // 500B default
-  const [quantity, setQuantity] = useState(1);
+  // Live Quote state (Min 500B / 0.5T = ₦800 | ₦1,500 / 1T | Max 1000T)
+  const [trillionsInput, setTrillionsInput] = useState<string>(() => {
+    const raw = searchParams.get('t');
+    return raw ? String(normalizeTrillions(raw)) : '0.5';
+  });
   const [lagosUsername, setLagosUsername] = useState(profile?.lagos_life_username ?? '');
+  const [confirmLagosUsername, setConfirmLagosUsername] = useState(
+    profile?.lagos_life_username ?? '',
+  );
   const [submitting, setSubmitting] = useState(false);
 
+  // Active checkout order & VIP upgrade checkout
   const [activeOrder, setActiveOrder] = useState<MoneyPackOrderRecord | null>(null);
+  const [activeVipRequest, setActiveVipRequest] = useState<VipUpgradeRequestRecord | null>(
+    null,
+  );
+  const [vipBusyTier, setVipBusyTier] = useState<string | null>(null);
   const [activeReceipt, setActiveReceipt] = useState<TransferReceiptData | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
@@ -73,14 +104,16 @@ export function MemberMoneyPacksSection() {
   useEffect(() => {
     if (profile?.lagos_life_username && !lagosUsername) {
       setLagosUsername(profile.lagos_life_username);
+      setConfirmLagosUsername(profile.lagos_life_username);
     }
   }, [profile?.lagos_life_username, lagosUsername]);
 
   const loadData = useCallback(async () => {
     setError(null);
-    const [settingsRes, ordersRes] = await Promise.all([
+    const [settingsRes, ordersRes, vipRes] = await Promise.all([
       fetchMoneyPackSettings(),
       fetchMyMoneyPackOrders(),
+      fetchMyVipMembership(),
     ]);
     if (settingsRes.error) {
       setError(settingsRes.error);
@@ -89,7 +122,6 @@ export function MemberMoneyPacksSection() {
     }
     if (!ordersRes.error) {
       setOrders(ordersRes.orders);
-      // Auto-surface any awaiting_payment order so member doesn't lose payment details
       const openOrder = ordersRes.orders.find((o) => o.status === 'awaiting_payment');
       setActiveOrder((prev) => {
         if (prev) {
@@ -99,6 +131,9 @@ export function MemberMoneyPacksSection() {
         return openOrder ?? null;
       });
     }
+    if (!vipRes.error) {
+      setVip(vipRes.vip);
+    }
     setLoading(false);
   }, []);
 
@@ -106,7 +141,10 @@ export function MemberMoneyPacksSection() {
     void loadData();
   }, [loadData]);
 
-  const totalPriceNgn = selectedPack.priceNgn * quantity;
+  const parsedT = normalizeTrillions(trillionsInput);
+  const displayLabel = formatTrillionLabel(parsedT);
+  const activeDiscount = vip?.discount_percent ?? 0;
+  const quote = calculateTrillionQuoteNgn(parsedT, activeDiscount);
 
   const copyText = async (label: string, value: string) => {
     try {
@@ -114,22 +152,31 @@ export function MemberMoneyPacksSection() {
       setCopiedField(label);
       window.setTimeout(() => setCopiedField(null), 2000);
     } catch {
-      // Clipboard fallback ignored
+      // ignore
     }
   };
 
   const handlePlaceOrder = async () => {
-    if (!lagosUsername.trim()) {
+    const clean1 = lagosUsername.trim().replace(/^@/, '');
+    const clean2 = confirmLagosUsername.trim().replace(/^@/, '');
+
+    if (clean1.length < 2) {
       setError('Enter your LagosLife username to receive your funds.');
       return;
     }
+    if (clean1.toLowerCase() !== clean2.toLowerCase()) {
+      setError(
+        'Both LagosLife username fields must match exactly. Currency cannot be reversed.',
+      );
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
 
-    const res = await createMoneyPackOrder({
-      packCode: selectedPack.code,
-      quantity,
-      lagosLifeUsername: lagosUsername.trim(),
+    const res = await createTrillionQuoteOrder({
+      trillions: parsedT,
+      lagosLifeUsername: clean1,
     });
 
     setSubmitting(false);
@@ -161,6 +208,31 @@ export function MemberMoneyPacksSection() {
     }
   };
 
+  const handleRequestVip = async (tier: VipTierConfig) => {
+    setVipBusyTier(tier.code);
+    setError(null);
+    const res = await requestVipUpgrade(tier.code);
+    setVipBusyTier(null);
+    if (res.error || !res.request) {
+      setError(res.error || 'Could not start VIP upgrade.');
+      return;
+    }
+    setActiveVipRequest(res.request);
+  };
+
+  const handleVipPaidWhatsApp = async (req: VipUpgradeRequestRecord) => {
+    const waUrl = buildVipWhatsAppUrl(
+      settings?.whatsapp_number ?? '',
+      req,
+      profile?.username,
+    );
+    window.open(waUrl, '_blank', 'noopener,noreferrer');
+    if (req.status === 'awaiting_payment') {
+      const res = await markVipPaymentSubmitted(req.id);
+      if (res.request) setActiveVipRequest(res.request);
+    }
+  };
+
   const handleCancelOrder = async (orderId: string) => {
     setActionBusyId(orderId);
     const res = await cancelMoneyPackOrder(orderId);
@@ -175,281 +247,396 @@ export function MemberMoneyPacksSection() {
 
   if (loading) {
     return (
-      <div className="mb-10 border hairline-border bg-brand-charcoal/50 p-6">
+      <div className="mb-8 border hairline-border bg-brand-charcoal/50 p-6">
         <div className="flex items-center gap-3 text-sm text-brand-muted">
           <Loader2 className="h-4 w-4 animate-spin text-brand-gold" />
-          Loading Official VATAR Money Packs...
+          Loading Official VATAR Currency Store...
         </div>
       </div>
     );
   }
 
   return (
-    <section className="mb-10 border border-brand-gold/40 bg-brand-charcoal/70 p-6 sm:p-8">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="heading-eyebrow flex items-center gap-2">
-            <Coins className="h-3.5 w-3.5 text-brand-gold" aria-hidden="true" />
-            Official Store — By Soft
-          </p>
-          <h2 className="heading-section mt-1 text-2xl text-brand-white sm:text-3xl">
-            LagosLife Money Packs
-          </h2>
-          <p className="mt-1 font-body text-sm text-brand-muted">
-            Tap a pack, pay to the official account, and tap once to send your receipt on WhatsApp.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {settings?.telegram_url && (
-            <a
-              href={settings.telegram_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 border hairline-border bg-brand-black/60 px-3 py-2 font-heading text-[0.68rem] tracking-[0.16em] text-brand-cream uppercase transition-colors hover:border-brand-gold hover:text-brand-gold"
-            >
-              <Send className="h-3.5 w-3.5 text-brand-gold" aria-hidden="true" />
-              Telegram Channel
-              <ExternalLink className="h-3 w-3" aria-hidden="true" />
-            </a>
-          )}
-          <Button variant="secondary" size="sm" onClick={() => void loadData()}>
-            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-            Refresh
-          </Button>
-        </div>
-      </div>
-
+    <div className="mb-10 space-y-6">
       {error && (
-        <div className="mt-5 flex items-center gap-2.5 border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+        <div className="flex items-center gap-2.5 border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
           <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" aria-hidden="true" />
           <span>{error}</span>
         </div>
       )}
 
-      {settings && !settings.is_enabled ? (
-        <div className="mt-6 border hairline-border bg-brand-black/60 p-5 text-sm text-brand-muted">
-          Official money pack orders are temporarily paused by the owner. Check back shortly or join our Telegram channel for updates.
+      {/* 1. PAID VIP MEMBERSHIP DISCOUNT TIERS */}
+      <section className="border hairline-border bg-brand-charcoal/65 p-5 sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="heading-eyebrow flex items-center gap-1.5">
+              <Sparkles className="h-3.5 w-3.5 text-brand-gold" />
+              Membership
+            </p>
+            <h2 className="mt-1 font-body text-sm text-brand-cream sm:text-base">
+              Save up to <strong className="text-brand-gold">20%</strong> on every purchase
+              by unlocking a monthly VIP tier.
+            </h2>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {vip && (
+              <span className="inline-flex items-center gap-1.5 border border-brand-gold bg-brand-gold/15 px-3 py-1 font-heading text-[0.68rem] tracking-[0.16em] text-brand-gold uppercase">
+                <Crown className="h-3.5 w-3.5" />
+                Active: {vip.tier} ({vip.discount_percent}% off)
+              </span>
+            )}
+            <Button variant="secondary" size="sm" onClick={() => void loadData()}>
+              <RefreshCw className="h-3.5 w-3.5" />
+              Refresh
+            </Button>
+          </div>
         </div>
-      ) : (
-        <>
-          {/* Active Payment Checkout Card */}
-          {activeOrder &&
-            (activeOrder.status === 'awaiting_payment' ||
-              activeOrder.status === 'payment_submitted' ||
-              activeOrder.status === 'sending') && (
-              <div className="mt-6 border border-brand-gold bg-brand-black/90 p-5 sm:p-6">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-heading text-xs tracking-[0.2em] text-brand-gold uppercase">
-                        Order {activeOrder.order_code}
-                      </span>
-                      <span
-                        className={cn(
-                          'border px-2 py-0.5 font-heading text-[0.65rem] tracking-[0.14em] uppercase',
-                          statusBadgeClass(activeOrder.status),
-                        )}
-                      >
-                        {MONEY_PACK_STATUS_LABELS[activeOrder.status]}
-                      </span>
-                    </div>
-                    <h3 className="mt-1 font-heading text-xl text-brand-white">
-                      {activeOrder.pack_label} &mdash; ₦{activeOrder.total_price_ngn.toLocaleString()}
-                    </h3>
-                    <p className="mt-0.5 font-body text-xs text-brand-muted">
-                      Recipient LagosLife Username:{' '}
-                      <span className="font-medium text-brand-cream">
-                        {activeOrder.lagos_life_username}
-                      </span>
-                    </p>
-                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setActiveOrder(null)}
-                    className="cursor-pointer p-1 text-brand-muted hover:text-brand-white"
-                    aria-label="Hide payment card"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-
-                {/* Bank Details */}
-                <div className="mt-5 grid gap-3 border-t border-b hairline-border py-4 sm:grid-cols-3">
-                  <div>
-                    <p className="font-heading text-[0.65rem] tracking-[0.18em] text-brand-muted uppercase">
-                      Bank Name
-                    </p>
-                    <p className="mt-1 font-body text-sm font-medium text-brand-white">
-                      {settings?.bank_name || 'Contact owner on WhatsApp'}
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="font-heading text-[0.65rem] tracking-[0.18em] text-brand-muted uppercase">
-                      Account Number
-                    </p>
-                    <div className="mt-1 flex items-center gap-2">
-                      <span className="font-heading text-base tracking-[0.12em] text-brand-gold">
-                        {settings?.account_number || 'Pending setup'}
-                      </span>
-                      {settings?.account_number && (
-                        <button
-                          type="button"
-                          onClick={() => void copyText('acct', settings.account_number)}
-                          className="inline-flex cursor-pointer items-center gap-1 border border-brand-gold/40 bg-brand-charcoal px-2 py-0.5 font-heading text-[0.62rem] tracking-[0.14em] text-brand-cream uppercase hover:border-brand-gold hover:text-brand-gold"
-                        >
-                          {copiedField === 'acct' ? (
-                            <>
-                              <Check className="h-3 w-3 text-emerald-400" />
-                              Copied
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="h-3 w-3" />
-                              Copy
-                            </>
-                          )}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="font-heading text-[0.65rem] tracking-[0.18em] text-brand-muted uppercase">
-                      Account Name
-                    </p>
-                    <p className="mt-1 font-body text-sm font-medium text-brand-white">
-                      {settings?.account_name || 'VATAR LIFESTYLE BY SOFT'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Primary 1-Click WhatsApp Receipt CTA */}
-                <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <button
-                      type="button"
-                      disabled={actionBusyId === activeOrder.id}
-                      onClick={() => void handlePaidAndWhatsApp(activeOrder)}
-                      className="inline-flex cursor-pointer items-center gap-2 border border-brand-gold bg-brand-gold px-5 py-3 font-heading text-xs font-semibold tracking-[0.18em] text-brand-black uppercase transition-colors hover:border-brand-cream hover:bg-brand-cream disabled:opacity-60"
-                    >
-                      <MessageCircle className="h-4 w-4" aria-hidden="true" />
-                      {activeOrder.status === 'awaiting_payment'
-                        ? "I've Paid — Send Receipt on WhatsApp"
-                        : 'Open WhatsApp Receipt Chat'}
-                      <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-                    </button>
-
-                    {(activeOrder.status === 'awaiting_payment' ||
-                      activeOrder.status === 'payment_submitted') && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={actionBusyId === activeOrder.id}
-                        onClick={() => void handleCancelOrder(activeOrder.id)}
-                      >
-                        Cancel Order
-                      </Button>
-                    )}
-                  </div>
-
-                  {activeOrder.status === 'payment_submitted' && (
-                    <span className="inline-flex items-center gap-1.5 font-body text-xs text-brand-gold">
-                      <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                      Receipt sent — waiting for admin approval &amp; dispatch.
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {VIP_TIERS.map((tier) => {
+            const isCurrent = vip?.tier === tier.code;
+            return (
+              <button
+                key={tier.code}
+                type="button"
+                disabled={vipBusyTier === tier.code}
+                onClick={() => void handleRequestVip(tier)}
+                className={cn(
+                  'flex cursor-pointer flex-col items-start border p-4 text-left transition-all hover:border-brand-gold',
+                  tier.accentClass,
+                  isCurrent && 'ring-1 ring-brand-gold',
+                )}
+              >
+                <div className="flex w-full items-center justify-between gap-1">
+                  <span className="font-heading text-xs font-semibold tracking-[0.18em] uppercase">
+                    {tier.name}
+                  </span>
+                  {isCurrent && (
+                    <span className="font-mono text-[10px] text-emerald-300 uppercase">
+                      Active
                     </span>
                   )}
                 </div>
-              </div>
-            )}
+                <span className="mt-1 font-heading text-base font-semibold text-brand-white">
+                  ₦{tier.monthlyPriceNgn.toLocaleString()}
+                  <span className="text-xs font-normal text-brand-muted">/mo</span>
+                </span>
+                <span className="mt-0.5 font-mono text-xs opacity-90">
+                  {vipBusyTier === tier.code
+                    ? 'Creating...'
+                    : `${tier.discountPercent}% off`}
+                </span>
+              </button>
+            );
+          })}
+        </div>
 
-          {/* Step 1: Tap a Pack */}
-          <div className="mt-6">
-            <p className="font-heading text-[0.7rem] tracking-[0.2em] text-brand-cream uppercase">
-              1. Choose Your Pack
-            </p>
-            <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-5">
-              {OFFICIAL_MONEY_PACKS.map((pack) => {
-                const isSelected = selectedPack.code === pack.code;
-                return (
-                  <button
-                    key={pack.code}
-                    type="button"
-                    onClick={() => setSelectedPack(pack)}
+        {/* VIP Upgrade Payment Box */}
+        {activeVipRequest && (
+          <div className="mt-4 border border-brand-gold bg-brand-black/90 p-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-heading text-xs tracking-[0.18em] text-brand-gold uppercase">
+                  VIP Upgrade {activeVipRequest.request_code} &mdash;{' '}
+                  {activeVipRequest.tier.toUpperCase()} ({activeVipRequest.discount_percent}% off)
+                </p>
+                <p className="mt-0.5 font-heading text-lg text-brand-white">
+                  Pay ₦{activeVipRequest.price_ngn.toLocaleString()} / 30 days
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveVipRequest(null)}
+                className="cursor-pointer p-1 text-brand-muted hover:text-brand-white"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="grid gap-3 border-t border-b hairline-border py-3 text-xs sm:grid-cols-3">
+              <div>
+                <span className="text-brand-muted uppercase">Bank</span>
+                <p className="mt-0.5 font-medium text-brand-white">
+                  {settings?.bank_name || 'Contact owner'}
+                </p>
+              </div>
+              <div>
+                <span className="text-brand-muted uppercase">Account Number</span>
+                <div className="mt-0.5 flex items-center gap-2">
+                  <span className="font-mono text-sm text-brand-gold">
+                    {settings?.account_number || 'Pending'}
+                  </span>
+                  {settings?.account_number && (
+                    <button
+                      type="button"
+                      onClick={() => void copyText('vip-acct', settings.account_number)}
+                      className="cursor-pointer border hairline-border px-1.5 py-0.5 text-[10px] text-brand-cream"
+                    >
+                      {copiedField === 'vip-acct' ? 'Copied' : 'Copy'}
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div>
+                <span className="text-brand-muted uppercase">Account Name</span>
+                <p className="mt-0.5 font-medium text-brand-white">
+                  {settings?.account_name || 'VATAR LIFESTYLE BY SOFT'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void handleVipPaidWhatsApp(activeVipRequest)}
+              className="inline-flex cursor-pointer items-center gap-2 border border-brand-gold bg-brand-gold px-4 py-2 font-heading text-xs font-semibold tracking-[0.16em] text-brand-black uppercase hover:bg-brand-cream"
+            >
+              <MessageCircle className="h-4 w-4" />
+              I&apos;ve Paid — Send VIP Receipt on WhatsApp
+              <ExternalLink className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+      </section>
+
+      {/* ACTIVE ORDER PAYMENT CARD */}
+      {activeOrder &&
+        (activeOrder.status === 'awaiting_payment' ||
+          activeOrder.status === 'payment_submitted' ||
+          activeOrder.status === 'sending') && (
+          <section className="border border-brand-gold bg-brand-black/95 p-5 sm:p-6">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-heading text-xs tracking-[0.2em] text-brand-gold uppercase">
+                    Order {activeOrder.order_code}
+                  </span>
+                  <span
                     className={cn(
-                      'relative flex cursor-pointer flex-col items-start border px-4 py-3 text-left transition-all',
-                      isSelected
-                        ? 'border-brand-gold bg-brand-gold/15 ring-1 ring-brand-gold'
-                        : 'hairline-border bg-brand-black/60 hover:border-brand-gold/50',
+                      'border px-2 py-0.5 font-heading text-[0.65rem] tracking-[0.14em] uppercase',
+                      statusBadgeClass(activeOrder.status),
                     )}
                   >
-                    {pack.popular && (
-                      <span className="absolute top-1.5 right-2 font-heading text-[0.55rem] tracking-[0.16em] text-brand-gold uppercase">
-                        Popular
-                      </span>
-                    )}
-                    <span className="font-heading text-lg font-semibold text-brand-white">
-                      {pack.label}
-                    </span>
-                    <span className="mt-0.5 font-body text-xs font-medium text-brand-gold">
-                      ₦{pack.priceNgn.toLocaleString()}
-                    </span>
-                  </button>
-                );
-              })}
+                    {MONEY_PACK_STATUS_LABELS[activeOrder.status]}
+                  </span>
+                </div>
+                <h3 className="mt-1 font-heading text-xl text-brand-white">
+                  {activeOrder.pack_label} &mdash; ₦{activeOrder.total_price_ngn.toLocaleString()}
+                </h3>
+                <p className="mt-0.5 font-body text-xs text-brand-muted">
+                  Recipient LagosLife Username:{' '}
+                  <strong className="text-brand-cream">
+                    @{activeOrder.lagos_life_username}
+                  </strong>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveOrder(null)}
+                className="cursor-pointer p-1 text-brand-muted hover:text-brand-white"
+                aria-label="Hide payment card"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
+
+            <div className="mt-4 grid gap-3 border-t border-b hairline-border py-4 sm:grid-cols-3">
+              <div>
+                <p className="font-heading text-[0.65rem] tracking-[0.18em] text-brand-muted uppercase">
+                  Bank Name
+                </p>
+                <p className="mt-1 font-body text-sm font-medium text-brand-white">
+                  {settings?.bank_name || 'Contact owner on WhatsApp'}
+                </p>
+              </div>
+              <div>
+                <p className="font-heading text-[0.65rem] tracking-[0.18em] text-brand-muted uppercase">
+                  Account Number
+                </p>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="font-heading text-base tracking-[0.12em] text-brand-gold">
+                    {settings?.account_number || 'Pending setup'}
+                  </span>
+                  {settings?.account_number && (
+                    <button
+                      type="button"
+                      onClick={() => void copyText('acct', settings.account_number)}
+                      className="inline-flex cursor-pointer items-center gap-1 border border-brand-gold/40 bg-brand-charcoal px-2 py-0.5 font-heading text-[0.62rem] tracking-[0.14em] text-brand-cream uppercase hover:border-brand-gold hover:text-brand-gold"
+                    >
+                      {copiedField === 'acct' ? (
+                        <>
+                          <Check className="h-3 w-3 text-emerald-400" />
+                          Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="h-3 w-3" />
+                          Copy
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div>
+                <p className="font-heading text-[0.65rem] tracking-[0.18em] text-brand-muted uppercase">
+                  Account Name
+                </p>
+                <p className="mt-1 font-body text-sm font-medium text-brand-white">
+                  {settings?.account_name || 'VATAR LIFESTYLE BY SOFT'}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  disabled={actionBusyId === activeOrder.id}
+                  onClick={() => void handlePaidAndWhatsApp(activeOrder)}
+                  className="inline-flex cursor-pointer items-center gap-2 border border-brand-gold bg-brand-gold px-5 py-3 font-heading text-xs font-semibold tracking-[0.18em] text-brand-black uppercase transition-colors hover:border-brand-cream hover:bg-brand-cream disabled:opacity-60"
+                >
+                  <MessageCircle className="h-4 w-4" aria-hidden="true" />
+                  {activeOrder.status === 'awaiting_payment'
+                    ? "I've Paid — Send Receipt on WhatsApp"
+                    : 'Open WhatsApp Receipt Chat'}
+                  <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+
+                {(activeOrder.status === 'awaiting_payment' ||
+                  activeOrder.status === 'payment_submitted') && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={actionBusyId === activeOrder.id}
+                    onClick={() => void handleCancelOrder(activeOrder.id)}
+                  >
+                    Cancel Order
+                  </Button>
+                )}
+              </div>
+
+              {activeOrder.status === 'payment_submitted' && (
+                <span className="inline-flex items-center gap-1.5 font-body text-xs text-brand-gold">
+                  <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                  Receipt sent — waiting for admin dispatch.
+                </span>
+              )}
+            </div>
+          </section>
+        )}
+
+      {/* 2. STEP 1: CHOOSE YOUR AMOUNT (₦1,500 / 1T, Min 1T - Max 1000T) */}
+      {settings && !settings.is_enabled ? (
+        <div className="border hairline-border bg-brand-charcoal/50 p-5 text-sm text-brand-muted">
+          Official currency orders are temporarily paused by the owner.
+        </div>
+      ) : (
+        <section className="border border-brand-gold/40 bg-brand-charcoal/70 p-5 sm:p-7 space-y-6">
+          <div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="font-heading text-sm font-semibold tracking-[0.16em] text-brand-white uppercase">
+                1. Choose your amount
+              </h2>
+              <span className="font-mono text-xs text-brand-gold">
+                ₦{LIVE_RATE_NGN_PER_TRILLION.toLocaleString()} / 1T
+              </span>
+            </div>
+
+            <div className="relative mt-3">
+              <input
+                type="number"
+                min={MIN_ORDER_TRILLIONS}
+                max={MAX_ORDER_TRILLIONS}
+                step={0.5}
+                value={trillionsInput}
+                onChange={(e) => setTrillionsInput(e.target.value)}
+                className="w-full border hairline-border bg-brand-black py-3 pr-12 pl-4 font-heading text-2xl font-semibold text-brand-white focus:border-brand-gold focus:outline-none"
+              />
+              <span className="pointer-events-none absolute top-1/2 right-4 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-full border hairline-border bg-brand-charcoal font-heading text-xs text-brand-gold">
+                T
+              </span>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              {TRILLION_PRESETS.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setTrillionsInput(String(preset))}
+                  className={cn(
+                    'cursor-pointer border px-3.5 py-1.5 font-mono text-xs transition-colors',
+                    parsedT === preset
+                      ? 'border-brand-gold bg-brand-gold text-brand-black font-semibold'
+                      : 'hairline-border bg-brand-black text-brand-cream hover:border-brand-gold',
+                  )}
+                >
+                  {preset}T
+                </button>
+              ))}
+            </div>
+
+            {/* Total Payable Box */}
+            <div className="mt-4 border hairline-border bg-brand-black/80 p-4">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="font-body text-xs text-brand-muted">Total payable</span>
+                <div className="text-right">
+                  {activeDiscount > 0 && (
+                    <span className="mr-2 font-mono text-xs text-brand-muted line-through">
+                      ₦{quote.basePrice.toLocaleString()}
+                    </span>
+                  )}
+                  <span className="font-heading text-2xl font-semibold text-brand-white">
+                    ₦{quote.finalPrice.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+              {activeDiscount > 0 && (
+                <p className="mt-1 text-right font-mono text-[11px] text-emerald-300">
+                  {vip?.tier.toUpperCase()} VIP {activeDiscount}% discount applied (Saved ₦
+                  {quote.savings.toLocaleString()})
+                </p>
+              )}
+            </div>
+
+            <p className="mt-2 font-body text-xs text-brand-muted">
+              Minimum 500B (0.5T = ₦{HALF_TRILLION_RATE_NGN.toLocaleString()}) &bull; Standard
+              rate ₦{LIVE_RATE_NGN_PER_TRILLION.toLocaleString()} / 1T &bull; Max{' '}
+              {MAX_ORDER_TRILLIONS}T per order
+            </p>
           </div>
 
-          {/* Step 2: Confirm Username & 1-Tap Order */}
-          <div className="mt-5 grid gap-4 border-t hairline-border pt-5 sm:grid-cols-12 sm:items-end">
-            <div className="sm:col-span-5">
-              <label
-                htmlFor="mp-lagos-username"
-                className="block font-heading text-[0.68rem] tracking-[0.18em] text-brand-cream uppercase"
-              >
-                2. LagosLife Username
-              </label>
+          {/* 3. STEP 2: CONFIRM YOUR LAGOSLIFE USERNAME (TYPED TWICE) */}
+          <div className="border-t hairline-border pt-5">
+            <h2 className="font-heading text-sm font-semibold tracking-[0.16em] text-brand-white uppercase">
+              2. Confirm your LagosLife username
+            </h2>
+            <p className="mt-1 font-body text-xs text-brand-muted">
+              Currency cannot be reversed. Type the username twice, exactly as it appears in-game.
+            </p>
+
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <input
-                id="mp-lagos-username"
                 type="text"
                 value={lagosUsername}
                 onChange={(e) => setLagosUsername(e.target.value)}
-                placeholder="Your LagosLife username"
-                className="mt-2 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-body text-sm text-brand-white placeholder:text-brand-muted/60 focus:border-brand-gold focus:outline-none"
+                placeholder="LagosLife username (e.g. @player)"
+                className="w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-body text-sm text-brand-white focus:border-brand-gold focus:outline-none"
+              />
+              <input
+                type="text"
+                value={confirmLagosUsername}
+                onChange={(e) => setConfirmLagosUsername(e.target.value)}
+                placeholder="Confirm LagosLife username"
+                className="w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-body text-sm text-brand-white focus:border-brand-gold focus:outline-none"
               />
             </div>
 
-            <div className="sm:col-span-3">
-              <label className="block font-heading text-[0.68rem] tracking-[0.18em] text-brand-cream uppercase">
-                Quantity
-              </label>
-              <div className="mt-2 flex items-center border hairline-border bg-brand-black">
-                {[1, 2, 3, 5].map((q) => (
-                  <button
-                    key={q}
-                    type="button"
-                    onClick={() => setQuantity(q)}
-                    className={cn(
-                      'flex-1 cursor-pointer py-2.5 font-heading text-xs transition-colors',
-                      quantity === q
-                        ? 'bg-brand-gold font-semibold text-brand-black'
-                        : 'text-brand-muted hover:text-brand-white',
-                    )}
-                  >
-                    {q}×
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="sm:col-span-4">
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-4">
               <Button
                 variant="primary"
-                size="md"
-                className="w-full"
+                size="lg"
+                className="w-full sm:w-auto"
                 disabled={submitting}
                 onClick={() => void handlePlaceOrder()}
               >
@@ -460,24 +647,41 @@ export function MemberMoneyPacksSection() {
                   </>
                 ) : (
                   <>
-                    Order {quantity > 1 ? `${quantity}× ` : ''}
-                    {selectedPack.label} &mdash; ₦{totalPriceNgn.toLocaleString()}
+                    Continue &mdash; {displayLabel} for ₦{quote.finalPrice.toLocaleString()}
                   </>
                 )}
               </Button>
+
+              <div className="flex flex-wrap items-center gap-4 font-heading text-[0.65rem] tracking-[0.16em] text-brand-muted uppercase">
+                <span className="inline-flex items-center gap-1">
+                  <ShieldCheck className="h-3.5 w-3.5 text-brand-gold" />
+                  Verified Payments
+                </span>
+                {settings?.telegram_url && (
+                  <a
+                    href={settings.telegram_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-brand-gold hover:underline"
+                  >
+                    <Send className="h-3 w-3" />
+                    Telegram
+                  </a>
+                )}
+              </div>
             </div>
           </div>
-        </>
+        </section>
       )}
 
-      {/* Recent Member Money Pack Orders */}
+      {/* Recent Member Orders + Receipts */}
       {orders.length > 0 && (
-        <div className="mt-6 border-t hairline-border pt-5">
+        <section className="border hairline-border bg-brand-charcoal/50 p-5">
           <p className="font-heading text-[0.68rem] tracking-[0.2em] text-brand-muted uppercase">
-            Your Recent Money Pack Orders
+            Your Recent Currency Orders
           </p>
           <div className="mt-3 space-y-2">
-            {orders.slice(0, 5).map((order) => (
+            {orders.slice(0, 6).map((order) => (
               <div
                 key={order.id}
                 className="flex flex-wrap items-center justify-between gap-2 border hairline-border bg-brand-black/50 px-4 py-2.5 text-xs"
@@ -489,7 +693,7 @@ export function MemberMoneyPacksSection() {
                   <span className="font-medium text-brand-white">
                     {order.pack_label} (₦{order.total_price_ngn.toLocaleString()})
                   </span>
-                  <span className="text-brand-muted">→ {order.lagos_life_username}</span>
+                  <span className="text-brand-muted">→ @{order.lagos_life_username}</span>
                 </div>
 
                 <div className="flex items-center gap-2.5">
@@ -515,7 +719,7 @@ export function MemberMoneyPacksSection() {
                     type="button"
                     onClick={() =>
                       setActiveReceipt({
-                        title: `Money Pack — ${order.pack_label}`,
+                        title: `Currency Order — ${order.pack_label}`,
                         reference: order.order_code,
                         recipient: order.lagos_life_username,
                         senders: ['VATAR Official Store'],
@@ -540,13 +744,15 @@ export function MemberMoneyPacksSection() {
               </div>
             ))}
           </div>
-        </div>
+        </section>
       )}
+
+      <ReviewsSection />
 
       <TransferReceiptModal
         receipt={activeReceipt}
         onClose={() => setActiveReceipt(null)}
       />
-    </section>
+    </div>
   );
 }

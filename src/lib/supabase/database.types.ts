@@ -354,6 +354,43 @@ export type MoneyPackSettingsRecord = {
   updated_at: string;
 };
 
+export type VipTierCode = 'gold' | 'platinum' | 'diamond' | 'elite';
+
+export type VipUpgradeStatus =
+  | 'awaiting_payment'
+  | 'payment_submitted'
+  | 'approved'
+  | 'rejected'
+  | 'cancelled';
+
+export type VipMembershipRecord = {
+  user_id: string;
+  tier: VipTierCode;
+  discount_percent: number;
+  monthly_price_ngn: number;
+  started_at: string;
+  expires_at: string;
+  approved_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type VipUpgradeRequestRecord = {
+  id: string;
+  request_code: string;
+  user_id: string;
+  tier: VipTierCode;
+  discount_percent: number;
+  price_ngn: number;
+  status: VipUpgradeStatus;
+  payment_submitted_at: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  admin_note: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type MoneyPackOrderRecord = {
   id: string;
   order_code: string;
@@ -365,6 +402,8 @@ export type MoneyPackOrderRecord = {
   in_game_amount: number;
   unit_price_ngn: number;
   total_price_ngn: number;
+  discount_percent?: number;
+  vip_tier?: string | null;
   status: MoneyPackOrderStatus;
   buyer_note: string | null;
   admin_note: string | null;
@@ -372,6 +411,28 @@ export type MoneyPackOrderRecord = {
   approved_by: string | null;
   approved_at: string | null;
   completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PublicReviewRow = {
+  id: string;
+  user_id: string;
+  username: string;
+  full_name: string;
+  vip_tier: string | null;
+  rating: number;
+  comment: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SiteReviewRecord = {
+  id: string;
+  user_id: string;
+  rating: number;
+  comment: string;
+  is_visible: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -611,6 +672,18 @@ export type Database = {
         Update: never;
         Relationships: [];
       };
+      vip_memberships: {
+        Row: VipMembershipRecord;
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      vip_upgrade_requests: {
+        Row: VipUpgradeRequestRecord;
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -811,6 +884,38 @@ export type Database = {
       get_pending_money_pack_count: {
         Args: Record<string, never>;
         Returns: number;
+      };
+      create_trillion_quote_order: {
+        Args: {
+          p_trillions: number;
+          p_lagos_life_username: string;
+          p_buyer_note?: string | null;
+        };
+        Returns: MoneyPackOrderRecord;
+      };
+      request_vip_upgrade: {
+        Args: { p_tier: VipTierCode };
+        Returns: VipUpgradeRequestRecord;
+      };
+      mark_vip_payment_submitted: {
+        Args: { p_request_id: string };
+        Returns: VipUpgradeRequestRecord;
+      };
+      admin_review_vip_upgrade: {
+        Args: {
+          p_request_id: string;
+          p_decision: 'approved' | 'rejected';
+          p_admin_note?: string | null;
+        };
+        Returns: VipUpgradeRequestRecord;
+      };
+      get_public_reviews: {
+        Args: { p_limit?: number };
+        Returns: PublicReviewRow[];
+      };
+      submit_site_review: {
+        Args: { p_rating: number; p_comment: string };
+        Returns: SiteReviewRecord;
       };
     };
     Enums: Record<string, never>;

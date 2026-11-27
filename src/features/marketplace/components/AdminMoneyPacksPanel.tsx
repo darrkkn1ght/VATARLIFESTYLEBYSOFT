@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronUp,
   Coins,
+  Crown,
   KeyRound,
   Loader2,
   Plus,
@@ -24,12 +25,15 @@ import {
 } from '@/components/shared/TransferReceiptModal';
 import { Button } from '@/components/ui/Button';
 import {
+  adminReviewVipUpgrade,
   adminUpdateMoneyPackOrder,
   adminUpdateMoneyPackSettings,
   fetchAdminMoneyPackOrders,
+  fetchAdminVipRequests,
   fetchMoneyPackSettings,
   MONEY_PACK_STATUS_LABELS,
   type AdminMoneyPackOrderView,
+  type AdminVipRequestView,
 } from '@/features/marketplace/services/moneyPackService';
 import {
   dispatchOrderAcrossSenders,
@@ -86,6 +90,8 @@ function formatTime(iso: string): string {
 
 export function AdminMoneyPacksPanel() {
   const [orders, setOrders] = useState<AdminMoneyPackOrderView[]>([]);
+  const [vipRequests, setVipRequests] = useState<AdminVipRequestView[]>([]);
+  const [busyVipId, setBusyVipId] = useState<string | null>(null);
   const [settings, setSettings] = useState<MoneyPackSettingsRecord | null>(null);
   const [senders, setSenders] = useState<LiveSenderAccount[]>([]);
 
@@ -138,16 +144,21 @@ export function AdminMoneyPacksPanel() {
     if (fullLoad) setLoading(true);
     else setRefreshing(true);
 
-    const [ordersRes, settingsRes, liveSenders] = await Promise.all([
+    const [ordersRes, settingsRes, liveSenders, vipRes] = await Promise.all([
       fetchAdminMoneyPackOrders(),
       fetchMoneyPackSettings(),
       refreshAllLiveSenders(),
+      fetchAdminVipRequests(),
     ]);
 
     if (ordersRes.error) {
       setBanner({ type: 'error', text: ordersRes.error });
     } else {
       setOrders(ordersRes.orders);
+    }
+
+    if (!vipRes.error) {
+      setVipRequests(vipRes.requests);
     }
 
     if (settingsRes.settings) {
@@ -261,6 +272,44 @@ export function AdminMoneyPacksPanel() {
           o.status === 'sending',
       ),
     [orders],
+  );
+
+  const handleReviewVip = async (
+    req: AdminVipRequestView,
+    decision: 'approved' | 'rejected',
+  ) => {
+    setBusyVipId(req.id);
+    const res = await adminReviewVipUpgrade({
+      requestId: req.id,
+      decision,
+      adminNote:
+        decision === 'approved'
+          ? `Approved ${req.tier.toUpperCase()} VIP (${req.discount_percent}% off) for 30 days.`
+          : 'Rejected by admin.',
+    });
+    setBusyVipId(null);
+    if (res.error) {
+      setBanner({ type: 'error', text: res.error });
+    } else if (res.request) {
+      setVipRequests((prev) =>
+        prev.map((r) => (r.id === req.id ? { ...r, ...res.request! } : r)),
+      );
+      setBanner({
+        type: 'success',
+        text:
+          decision === 'approved'
+            ? `Activated ${req.tier.toUpperCase()} VIP (${req.discount_percent}% off) for @${req.member_username} for 30 days!`
+            : `Rejected VIP request ${req.request_code}.`,
+      });
+    }
+  };
+
+  const pendingVipRequests = useMemo(
+    () =>
+      vipRequests.filter(
+        (r) => r.status === 'awaiting_payment' || r.status === 'payment_submitted',
+      ),
+    [vipRequests],
   );
 
   const visibleOrders = filterMode === 'pending' ? pendingOrders : orders;
@@ -1214,6 +1263,64 @@ export function AdminMoneyPacksPanel() {
           </div>
         )}
       </section>
+
+      {/* 2B. VIP MEMBERSHIP UPGRADE REQUESTS */}
+      {pendingVipRequests.length > 0 && (
+        <section className="border border-brand-gold/55 bg-brand-charcoal/70 p-5">
+          <div className="flex items-center gap-2">
+            <Crown className="h-4 w-4 text-brand-gold" />
+            <h3 className="font-heading text-sm font-semibold tracking-[0.16em] text-brand-gold uppercase">
+              VIP Discount Tier Requests ({pendingVipRequests.length})
+            </h3>
+          </div>
+          <div className="mt-3 space-y-2.5">
+            {pendingVipRequests.map((req) => (
+              <div
+                key={req.id}
+                className="flex flex-wrap items-center justify-between gap-3 border hairline-border bg-brand-black/80 px-4 py-3 text-xs"
+              >
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-heading tracking-[0.14em] text-brand-gold">
+                      {req.request_code}
+                    </span>
+                    <span className="border border-brand-gold/40 bg-brand-gold/15 px-2 py-0.5 font-heading text-[10px] text-brand-gold uppercase">
+                      {req.tier} ({req.discount_percent}% off)
+                    </span>
+                    <span className="font-semibold text-brand-white">
+                      ₦{req.price_ngn.toLocaleString()}/mo
+                    </span>
+                  </div>
+                  <p className="mt-1 text-brand-muted">
+                    @{req.member_username} ({req.member_full_name}) &bull;{' '}
+                    {req.status === 'payment_submitted' ? 'Receipt Sent' : 'Awaiting Payment'}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={busyVipId === req.id}
+                    onClick={() => void handleReviewVip(req, 'approved')}
+                  >
+                    <Crown className="h-3.5 w-3.5" />
+                    Approve 30-Day VIP
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={busyVipId === req.id}
+                    onClick={() => void handleReviewVip(req, 'rejected')}
+                  >
+                    Reject
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* 3. COLLAPSIBLE PAYOUT BANK & WHATSAPP SETTINGS */}
       <section className="border hairline-border bg-brand-charcoal/45">

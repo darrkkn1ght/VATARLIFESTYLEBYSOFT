@@ -4,7 +4,103 @@ import type {
   MoneyPackOrderRecord,
   MoneyPackOrderStatus,
   MoneyPackSettingsRecord,
+  VipMembershipRecord,
+  VipTierCode,
+  VipUpgradeRequestRecord,
 } from '@/lib/supabase/database.types';
+
+export const LIVE_RATE_NGN_PER_TRILLION = 1500;
+export const HALF_TRILLION_RATE_NGN = 800; // 500B (0.5T) minimum rate
+export const MIN_ORDER_TRILLIONS = 0.5;
+export const MAX_ORDER_TRILLIONS = 1000;
+export const TRILLION_PRESETS = [0.5, 1, 5, 10, 50, 100] as const;
+
+export function normalizeTrillions(raw: number | string): number {
+  const num = Number(raw);
+  if (!Number.isFinite(num) || num < MIN_ORDER_TRILLIONS) return MIN_ORDER_TRILLIONS;
+  const clamped = Math.min(MAX_ORDER_TRILLIONS, num);
+  return Math.round(clamped * 2) / 2;
+}
+
+export function formatTrillionLabel(trillions: number): string {
+  const normalized = normalizeTrillions(trillions);
+  if (normalized === 0.5) return '500B';
+  return `${normalized}T`;
+}
+
+export interface VipTierConfig {
+  code: VipTierCode;
+  name: string;
+  monthlyPriceNgn: number;
+  discountPercent: number;
+  accentClass: string;
+}
+
+export const VIP_TIERS: readonly VipTierConfig[] = [
+  {
+    code: 'gold',
+    name: 'GOLD',
+    monthlyPriceNgn: 30_000,
+    discountPercent: 5,
+    accentClass: 'border-amber-500/45 bg-amber-950/20 text-amber-300',
+  },
+  {
+    code: 'platinum',
+    name: 'PLATINUM',
+    monthlyPriceNgn: 50_000,
+    discountPercent: 8,
+    accentClass: 'border-zinc-400/45 bg-zinc-900/50 text-zinc-200',
+  },
+  {
+    code: 'diamond',
+    name: 'DIAMOND',
+    monthlyPriceNgn: 100_000,
+    discountPercent: 12,
+    accentClass: 'border-sky-400/45 bg-sky-950/25 text-sky-300',
+  },
+  {
+    code: 'elite',
+    name: 'ELITE',
+    monthlyPriceNgn: 200_000,
+    discountPercent: 20,
+    accentClass: 'border-brand-gold bg-brand-gold/15 text-brand-gold',
+  },
+] as const;
+
+export function calculateTrillionQuoteNgn(
+  trillions: number,
+  discountPercent = 0,
+): { basePrice: number; finalPrice: number; savings: number } {
+  const safeT = normalizeTrillions(trillions);
+  const wholeT = Math.floor(safeT);
+  const hasHalf = safeT - wholeT >= 0.5;
+  const basePrice = wholeT * LIVE_RATE_NGN_PER_TRILLION + (hasHalf ? HALF_TRILLION_RATE_NGN : 0);
+  const finalPrice = Math.round((basePrice * (100 - discountPercent)) / 100);
+  return { basePrice, finalPrice, savings: basePrice - finalPrice };
+}
+
+export interface AdminVipRequestView extends VipUpgradeRequestRecord {
+  member_username: string;
+  member_full_name: string;
+  member_lagos_life: string;
+}
+
+export function buildVipWhatsAppUrl(
+  whatsappNumber: string,
+  req: VipUpgradeRequestRecord,
+  memberUsername?: string | null,
+): string {
+  const digits = whatsappNumber.replace(/[^0-9]/g, '');
+  const lines = [
+    `Hello Soft, I just paid for VATAR ${req.tier.toUpperCase()} VIP Membership (${req.discount_percent}% off).`,
+    `Request Ref: ${req.request_code}`,
+    `Amount Paid: ₦${req.price_ngn.toLocaleString()}/mo`,
+    memberUsername ? `VATAR Username: @${memberUsername}` : null,
+    'Here is my payment receipt:',
+  ].filter(Boolean);
+  const text = encodeURIComponent(lines.join('\n'));
+  return digits ? `https://wa.me/${digits}?text=${text}` : `https://wa.me/?text=${text}`;
+}
 
 export interface MoneyPackTier {
   code: MoneyPackCode;
@@ -282,4 +378,105 @@ export async function fetchPendingMoneyPackCount(): Promise<{
     }
     return { count: typeof data === 'number' ? data : 0, error: null };
   });
+}
+
+export async function createTrillionQuoteOrder(params: {
+  trillions: number;
+  lagosLifeUsername: string;
+  buyerNote?: string;
+}): Promise<{ order: MoneyPackOrderRecord | null; error: string | null }> {
+  if (!supabase) return { order: null, error: 'Supabase is not configured.' };
+  const { data, error } = await supabase.rpc('create_trillion_quote_order', {
+    p_trillions: normalizeTrillions(params.trillions),
+    p_lagos_life_username: params.lagosLifeUsername.trim(),
+    p_buyer_note: params.buyerNote?.trim() || null,
+  });
+  if (error) {
+    return { order: null, error: formatServiceError(error.message) };
+  }
+  notifyMoneyPacksUpdated();
+  return { order: data, error: null };
+}
+
+export async function fetchMyVipMembership(): Promise<{
+  vip: VipMembershipRecord | null;
+  error: string | null;
+}> {
+  if (!supabase) return { vip: null, error: null };
+  const client = supabase;
+  return retryReadOnce(async () => {
+    const { data, error } = await client
+      .from('vip_memberships')
+      .select('*')
+      .maybeSingle();
+    if (error) return { vip: null, error: error.message };
+    if (data && new Date(data.expires_at).getTime() <= Date.now()) {
+      return { vip: null, error: null };
+    }
+    return { vip: data, error: null };
+  });
+}
+
+export async function requestVipUpgrade(
+  tier: VipTierCode,
+): Promise<{ request: VipUpgradeRequestRecord | null; error: string | null }> {
+  if (!supabase) return { request: null, error: 'Supabase is not configured.' };
+  const { data, error } = await supabase.rpc('request_vip_upgrade', {
+    p_tier: tier,
+  });
+  if (error) return { request: null, error: formatServiceError(error.message) };
+  return { request: data, error: null };
+}
+
+export async function markVipPaymentSubmitted(
+  requestId: string,
+): Promise<{ request: VipUpgradeRequestRecord | null; error: string | null }> {
+  if (!supabase) return { request: null, error: 'Supabase is not configured.' };
+  const { data, error } = await supabase.rpc('mark_vip_payment_submitted', {
+    p_request_id: requestId,
+  });
+  if (error) return { request: null, error: formatServiceError(error.message) };
+  return { request: data, error: null };
+}
+
+export async function fetchAdminVipRequests(): Promise<{
+  requests: AdminVipRequestView[];
+  error: string | null;
+}> {
+  if (!supabase) return { requests: [], error: 'Supabase is not configured.' };
+  const [reqRes, profRes] = await Promise.all([
+    supabase
+      .from('vip_upgrade_requests')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50),
+    supabase.from('profiles').select('id, username, full_name, lagos_life_username'),
+  ]);
+  if (reqRes.error) return { requests: [], error: reqRes.error.message };
+  const map = new Map((profRes.data ?? []).map((p) => [p.id, p]));
+  const enriched: AdminVipRequestView[] = (reqRes.data ?? []).map((r) => {
+    const p = map.get(r.user_id);
+    return {
+      ...r,
+      member_username: p?.username ?? 'member',
+      member_full_name: p?.full_name ?? 'VATAR Member',
+      member_lagos_life: p?.lagos_life_username ?? '',
+    };
+  });
+  return { requests: enriched, error: null };
+}
+
+export async function adminReviewVipUpgrade(params: {
+  requestId: string;
+  decision: 'approved' | 'rejected';
+  adminNote?: string;
+}): Promise<{ request: VipUpgradeRequestRecord | null; error: string | null }> {
+  if (!supabase) return { request: null, error: 'Supabase is not configured.' };
+  const { data, error } = await supabase.rpc('admin_review_vip_upgrade', {
+    p_request_id: params.requestId,
+    p_decision: params.decision,
+    p_admin_note: params.adminNote?.trim() || null,
+  });
+  if (error) return { request: null, error: formatServiceError(error.message) };
+  return { request: data, error: null };
 }
