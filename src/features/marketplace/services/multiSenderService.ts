@@ -1,6 +1,7 @@
 import {
   fetchTreasuryStatus,
   logoutTreasury,
+  saveJobDescription,
   sendSingleTransfer,
   type TreasuryAccount,
   type TreasuryJob,
@@ -185,6 +186,7 @@ export async function dispatchOrderAcrossSenders(
   recipientUsername: string,
   totalAmount: number,
   overridePin?: string,
+  transferNote?: string,
 ): Promise<{
   results: PipelineDispatchItem[];
   shortfall: number;
@@ -194,6 +196,8 @@ export async function dispatchOrderAcrossSenders(
     return { results: [], shortfall };
   }
 
+  const cleanNote = transferNote?.trim() || undefined;
+
   const results = await Promise.all(
     allocations.map(async ({ sender, amount }): Promise<PipelineDispatchItem> => {
       try {
@@ -201,9 +205,13 @@ export async function dispatchOrderAcrossSenders(
         const res = await sendSingleTransfer(sender.token, {
           to: recipientUsername.trim(),
           amount,
+          ...(cleanNote ? { note: cleanNote } : {}),
           ...(pin ? { pin } : {}),
         });
         if (res.ok && res.data.success !== false) {
+          if (cleanNote && res.data.job?.id) {
+            saveJobDescription(res.data.job.id, cleanNote);
+          }
           return {
             senderId: sender.id,
             senderUser: sender.user,

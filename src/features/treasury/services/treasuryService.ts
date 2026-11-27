@@ -3,6 +3,40 @@ export const MONEYSENDER_API_BASE = (
 ).replace(/\/+$/, '');
 
 export const TREASURY_TOKEN_STORAGE_KEY = 'vatar_treasury_client_token';
+const JOB_DESCRIPTIONS_STORAGE_KEY = 'vatar_transfer_job_descriptions_v1';
+
+export function saveJobDescription(jobId: string | undefined, description: string | undefined): void {
+  const cleanId = jobId?.trim();
+  const cleanDesc = description?.trim();
+  if (!cleanId || !cleanDesc) return;
+  try {
+    const raw = localStorage.getItem(JOB_DESCRIPTIONS_STORAGE_KEY);
+    const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    map[cleanId] = cleanDesc;
+    const keys = Object.keys(map);
+    if (keys.length > 250) {
+      for (const oldKey of keys.slice(0, keys.length - 250)) {
+        delete map[oldKey];
+      }
+    }
+    localStorage.setItem(JOB_DESCRIPTIONS_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+export function getJobDescription(job: Pick<TreasuryJob, 'id' | 'note'>): string | null {
+  if (job.note && job.note.trim()) return job.note.trim();
+  if (!job.id) return null;
+  try {
+    const raw = localStorage.getItem(JOB_DESCRIPTIONS_STORAGE_KEY);
+    if (!raw) return null;
+    const map = JSON.parse(raw) as Record<string, string>;
+    return map[job.id] || null;
+  } catch {
+    return null;
+  }
+}
 
 export interface TreasuryAccount {
   uid?: string;
@@ -17,6 +51,7 @@ export interface TreasuryJob {
   sender?: string;
   target?: string;
   targetLabel?: string;
+  note?: string | null;
   total: number;
   remaining: number;
   chunkSize?: number;
@@ -134,7 +169,14 @@ export function logoutTreasury(token: string) {
 
 export function sendSingleTransfer(
   token: string,
-  payload: { to: string; amount: number; scheduledAt?: string; pin?: string; twoStepCode?: string },
+  payload: {
+    to: string;
+    amount: number;
+    note?: string;
+    scheduledAt?: string;
+    pin?: string;
+    twoStepCode?: string;
+  },
 ) {
   return requestJson<{ success?: boolean; job?: TreasuryJob }>(
     '/api/client/send',
@@ -151,6 +193,7 @@ export function sendBatchTransfer(
   payload: {
     recipients: string[];
     amountPerUser: number;
+    note?: string;
     scheduledAt?: string;
     pin?: string;
     twoStepCode?: string;

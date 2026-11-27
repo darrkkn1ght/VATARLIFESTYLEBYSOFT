@@ -48,14 +48,26 @@ import {
 } from '@/features/marketplace/services/multiSenderService';
 import {
   formatNaira,
+  getJobDescription,
   importLagosLifeCookie,
   loginLagosLife,
+  parseNairaAmount,
   resendLagosLife2FA,
   stopTransferJob,
   submitTransferTwoStep,
   verifyLagosLife2FA,
   type TreasuryJob,
 } from '@/features/treasury/services/treasuryService';
+
+const ADMIN_DESC_PRESETS = [
+  'Official Currency Order',
+  'Competition Winner Prize',
+  'VIP Monthly Bonus',
+  'Giveaway',
+  'Refund',
+] as const;
+
+const ADMIN_AMOUNT_CHIPS = ['50B', '100B', '500B', '1T', '5T', '10T'] as const;
 import type {
   MoneyPackOrderStatus,
   MoneyPackSettingsRecord,
@@ -120,8 +132,15 @@ export function AdminMoneyPacksPanel() {
   // Order dispatch tracking
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const [confirmOrder, setConfirmOrder] = useState<AdminMoneyPackOrderView | null>(null);
+  const [orderDescription, setOrderDescription] = useState('');
   const [stoppingJobId, setStoppingJobId] = useState<string | null>(null);
   const [showPipelineJobs, setShowPipelineJobs] = useState(false);
+
+  // Direct Admin Money Sender (with Description)
+  const [directTarget, setDirectTarget] = useState('');
+  const [directAmount, setDirectAmount] = useState('');
+  const [directDescription, setDirectDescription] = useState('');
+  const [sendingDirect, setSendingDirect] = useState(false);
   const [activeReceipt, setActiveReceipt] = useState<TransferReceiptData | null>(null);
   const [dispatchesByOrder, setDispatchesByOrder] = useState<
     Record<string, PipelineDispatchItem[]>
@@ -424,10 +443,80 @@ export function AdminMoneyPacksPanel() {
     setSenders(live);
   };
 
+  // Direct Admin Money Sender (send any amount + description across Multi-Pipeline Senders)
+  const handleDirectAdminSend = async (e: FormEvent) => {
+    e.preventDefault();
+    const cleanTarget = directTarget.trim().replace(/^@/, '');
+    const amt = parseNairaAmount(directAmount);
+    const cleanDesc = directDescription.trim();
+
+    if (!cleanTarget || amt <= 0) {
+      setBanner({
+        type: 'error',
+        text: 'Enter a recipient @username and a valid transfer amount (e.g. 100B, 1T).',
+      });
+      return;
+    }
+    if (!cleanDesc) {
+      setBanner({
+        type: 'error',
+        text: 'Enter a transfer description so the recipient knows what the money is for.',
+      });
+      return;
+    }
+
+    const { allocations, shortfall } = planPipelineSplit(senders, amt);
+    if (allocations.length === 0 || shortfall > 0) {
+      setBanner({
+        type: 'error',
+        text:
+          activeSenders.length === 0
+            ? 'Connect at least 1 LagosLife sender account above first.'
+            : `Connected sender accounts need ${formatNaira(shortfall)} more to send ${formatNaira(amt)}.`,
+      });
+      return;
+    }
+
+    setSendingDirect(true);
+    setBanner(null);
+    const { results } = await dispatchOrderAcrossSenders(
+      senders,
+      cleanTarget,
+      amt,
+      undefined,
+      cleanDesc,
+    );
+    setSendingDirect(false);
+
+    const allOk = results.length > 0 && results.every((r) => r.ok);
+    if (allOk) {
+      setDirectTarget('');
+      setDirectAmount('');
+      setDirectDescription('');
+      setShowPipelineJobs(true);
+      setBanner({
+        type: 'success',
+        text: `Sending ${formatNaira(amt)} to @${cleanTarget} — "${cleanDesc}"!`,
+      });
+    } else {
+      const failedMsg = results
+        .filter((r) => !r.ok)
+        .map((r) => `@${r.senderUser}: ${r.error}`)
+        .join('; ');
+      setBanner({ type: 'error', text: `Transfer failed: ${failedMsg}` });
+    }
+
+    const refreshed = await refreshAllLiveSenders();
+    setSenders(refreshed);
+  };
+
   // ONE-CLICK: Approve + Dispatch across connected sender pipeline(s)
   const handleApproveAndSend = async (order: AdminMoneyPackOrderView) => {
     setBusyOrderId(order.id);
     setBanner(null);
+    const cleanOrderDesc =
+      orderDescription.trim() ||
+      `VATAR Official Currency — ${order.order_code} (${order.pack_label})`;
 
     const { allocations, shortfall } = planPipelineSplit(senders, order.in_game_amount);
     if (allocations.length === 0 || shortfall > 0) {
@@ -460,6 +549,8 @@ export function AdminMoneyPacksPanel() {
       senders,
       order.lagos_life_username,
       order.in_game_amount,
+      undefined,
+      cleanOrderDesc,
     );
 
     setDispatchesByOrder((prev) => ({ ...prev, [order.id]: results }));
@@ -478,7 +569,7 @@ export function AdminMoneyPacksPanel() {
       const doneRes = await adminUpdateMoneyPackOrder({
         orderId: order.id,
         nextStatus: 'completed',
-        adminNote: `Sent via ${pipelineSummary}`,
+        adminNote: `${cleanOrderDesc} • Sent via ${pipelineSummary}`,
       });
       if (doneRes.order) {
         setOrders((prev) =>
@@ -493,12 +584,16 @@ export function AdminMoneyPacksPanel() {
       await adminUpdateMoneyPackOrder({
         orderId: order.id,
         nextStatus: 'sending',
-        adminNote: `Sending via ${pipelineSummary}`,
+        adminNote: `${cleanOrderDesc} • Sending via ${pipelineSummary}`,
       });
       setOrders((prev) =>
         prev.map((o) =>
           o.id === order.id
-            ? { ...o, status: 'sending', admin_note: `Sending via ${pipelineSummary}` }
+            ? {
+                ...o,
+                status: 'sending',
+                admin_note: `${cleanOrderDesc} • Sending via ${pipelineSummary}`,
+              }
             : o,
         ),
       );
@@ -848,9 +943,116 @@ export function AdminMoneyPacksPanel() {
             )}
           </div>
         )}
-      </section>
+        {/* Direct Admin Money Sender with Description */}
+        {activeSenders.length > 0 && (
+          <form
+            onSubmit={(e) => void handleDirectAdminSend(e)}
+            className="mt-5 space-y-3 border-t hairline-border pt-5"
+          >
+            <p className="font-heading text-xs font-semibold tracking-[0.16em] text-brand-gold uppercase">
+              Direct Admin Money Sender (With Description)
+            </p>
+            <div className="grid gap-3 sm:grid-cols-12">
+              <div className="sm:col-span-3">
+                <label className="block font-heading text-[10px] tracking-[0.14em] text-brand-muted uppercase">
+                  Recipient @Username
+                </label>
+                <input
+                  type="text"
+                  value={directTarget}
+                  onChange={(e) => setDirectTarget(e.target.value)}
+                  placeholder="@recipient"
+                  className="mt-1 w-full border hairline-border bg-brand-black px-3 py-2 text-xs text-brand-white focus:border-brand-gold focus:outline-none"
+                />
+              </div>
 
-      {/* 1B. LIVE PIPELINE MONITOR (COLLAPSIBLE & SCROLLABLE) */}
+              <div className="sm:col-span-3">
+                <label className="block font-heading text-[10px] tracking-[0.14em] text-brand-muted uppercase">
+                  Amount (₦)
+                </label>
+                <input
+                  type="text"
+                  value={directAmount}
+                  onChange={(e) => setDirectAmount(e.target.value)}
+                  placeholder="e.g. 100B, 1T"
+                  className="mt-1 w-full border hairline-border bg-brand-black px-3 py-2 font-mono text-xs text-brand-white focus:border-brand-gold focus:outline-none"
+                />
+              </div>
+
+              <div className="sm:col-span-4">
+                <label className="block font-heading text-[10px] tracking-[0.14em] text-brand-cream uppercase">
+                  Description (What Is This Money For?)
+                </label>
+                <input
+                  type="text"
+                  maxLength={140}
+                  value={directDescription}
+                  onChange={(e) => setDirectDescription(e.target.value)}
+                  placeholder="e.g. Competition Winner Prize, VIP Bonus..."
+                  className="mt-1 w-full border hairline-border bg-brand-black px-3 py-2 text-xs text-brand-white focus:border-brand-gold focus:outline-none"
+                />
+              </div>
+
+              <div className="flex items-end sm:col-span-2">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={sendingDirect}
+                  className="w-full"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  {sendingDirect ? 'Sending...' : 'Send Now'}
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-heading text-[10px] tracking-[0.14em] text-brand-muted uppercase">
+                  Amounts:
+                </span>
+                {ADMIN_AMOUNT_CHIPS.map((amt) => (
+                  <button
+                    key={amt}
+                    type="button"
+                    onClick={() => setDirectAmount(amt)}
+                    className={cn(
+                      'cursor-pointer border px-2 py-0.5 font-mono text-[11px]',
+                      directAmount.toUpperCase() === amt
+                        ? 'border-brand-gold bg-brand-gold text-brand-black font-semibold'
+                        : 'hairline-border bg-brand-black text-brand-cream hover:border-brand-gold',
+                    )}
+                  >
+                    {amt}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-heading text-[10px] tracking-[0.14em] text-brand-muted uppercase">
+                  Quick Description:
+                </span>
+                {ADMIN_DESC_PRESETS.map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setDirectDescription(preset)}
+                    className={cn(
+                      'cursor-pointer border px-2 py-0.5 font-body text-[11px]',
+                      directDescription === preset
+                        ? 'border-brand-gold bg-brand-gold text-brand-black font-semibold'
+                        : 'hairline-border bg-brand-black text-brand-cream hover:border-brand-gold',
+                    )}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </form>
+        )}
+      </section>
       {allPipelineJobs.length > 0 && (
         <section className="border border-brand-gold/45 bg-brand-charcoal/70">
           <button
@@ -901,6 +1103,7 @@ export function AdminMoneyPacksPanel() {
               const isStoppable = ['RUNNING', 'SCHEDULED', 'PAUSED'].includes(statusUpper);
               const recipientLabel = (job.target || job.targetLabel || 'recipient').replace(/^@/, '');
               const recentLogs = (job.logs || []).slice(-2);
+              const jobDesc = getJobDescription(job);
               const codeKey = `live:${sender.user}:${job.id}`;
 
               return (
@@ -938,6 +1141,11 @@ export function AdminMoneyPacksPanel() {
                         <strong className="text-brand-white">{formatNaira(total)}</strong> ({pct}%)
                         {job.txCount ? ` • ${job.txCount}${job.totalTxs ? `/${job.totalTxs}` : ''} txs` : ''}
                       </p>
+                      {jobDesc && (
+                        <p className="mt-1 font-body text-xs text-brand-gold">
+                          Description: <span className="text-brand-cream">{jobDesc}</span>
+                        </p>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
@@ -966,7 +1174,9 @@ export function AdminMoneyPacksPanel() {
                             status: statusUpper,
                             timestamp: new Date().toISOString(),
                             txCount: job.txCount ?? null,
-                            note: recentLogs.length > 0 ? recentLogs[recentLogs.length - 1] : null,
+                            note:
+                              jobDesc ||
+                              (recentLogs.length > 0 ? recentLogs[recentLogs.length - 1] : null),
                           })
                         }
                       >
@@ -1158,41 +1368,56 @@ export function AdminMoneyPacksPanel() {
                       {isActionable && (
                         <>
                           {confirmOrder?.id === order.id ? (
-                            <div className="flex flex-wrap items-center gap-2 border border-brand-gold bg-brand-gold/10 px-3 py-1.5">
-                              <span className="font-body text-xs text-brand-cream">
+                            <div className="w-full space-y-2 border border-brand-gold bg-brand-gold/10 p-3 sm:w-auto">
+                              <p className="font-body text-xs text-brand-cream">
                                 Send <strong>{order.pack_label}</strong> to{' '}
                                 <strong className="text-brand-gold">
                                   @{order.lagos_life_username}
                                 </strong>
-                                ?
-                              </span>
-                              <Button
-                                variant="primary"
-                                size="sm"
-                                disabled={busyOrderId === order.id}
-                                onClick={() => void handleApproveAndSend(order)}
-                              >
-                                {busyOrderId === order.id ? (
-                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                ) : (
-                                  <Send className="h-3.5 w-3.5" />
-                                )}
-                                Confirm Send
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setConfirmOrder(null)}
-                              >
-                                Cancel
-                              </Button>
+                                :
+                              </p>
+                              <input
+                                type="text"
+                                maxLength={140}
+                                value={orderDescription}
+                                onChange={(e) => setOrderDescription(e.target.value)}
+                                placeholder="Transfer description (what this money is for)"
+                                className="w-full min-w-[240px] border hairline-border bg-brand-black px-2.5 py-1.5 text-xs text-brand-white focus:border-brand-gold focus:outline-none"
+                              />
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                  variant="primary"
+                                  size="sm"
+                                  disabled={busyOrderId === order.id}
+                                  onClick={() => void handleApproveAndSend(order)}
+                                >
+                                  {busyOrderId === order.id ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Send className="h-3.5 w-3.5" />
+                                  )}
+                                  Confirm Send
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setConfirmOrder(null)}
+                                >
+                                  Cancel
+                                </Button>
+                              </div>
                             </div>
                           ) : (
                             <Button
                               variant="primary"
                               size="sm"
                               disabled={busyOrderId === order.id}
-                              onClick={() => setConfirmOrder(order)}
+                              onClick={() => {
+                                setConfirmOrder(order);
+                                setOrderDescription(
+                                  `VATAR Currency Order ${order.order_code} (${order.pack_label})`,
+                                );
+                              }}
                             >
                               <Send className="h-3.5 w-3.5" />
                               Approve &amp; Send Now

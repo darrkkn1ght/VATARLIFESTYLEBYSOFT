@@ -30,11 +30,13 @@ import {
   detectLivePartyEvents,
   fetchTreasuryStatus,
   formatNaira,
+  getJobDescription,
   importLagosLifeCookie,
   loginLagosLife,
   logoutTreasury,
   parseNairaAmount,
   resendLagosLife2FA,
+  saveJobDescription,
   scanPartyGuests,
   sendBatchTransfer,
   sendSingleTransfer,
@@ -49,6 +51,14 @@ import {
   type TreasuryAccount,
   type TreasuryJob,
 } from '@/features/treasury/services/treasuryService';
+
+const DESCRIPTION_PRESETS = [
+  'Vendor Order Payment',
+  'Currency Purchase',
+  'Competition Prize',
+  'Gift',
+  'Giveaway',
+] as const;
 
 const SINGLE_CHIPS = [
   { label: '50B', value: '50B' },
@@ -124,10 +134,14 @@ export function MemberTreasuryPage() {
   const [mode, setMode] = useState<'single' | 'batch' | 'spray'>('single');
   const [recipient, setRecipient] = useState(() => searchParams.get('to') || '');
   const [singleAmount, setSingleAmount] = useState(() => searchParams.get('amount') || '');
+  const [singleDescription, setSingleDescription] = useState(
+    () => searchParams.get('note') || '',
+  );
   const [singleSchedule, setSingleSchedule] = useState('');
   const [singlePin, setSinglePin] = useState('');
   const [bulkRecipients, setBulkRecipients] = useState('');
   const [bulkAmountPer, setBulkAmountPer] = useState('100B');
+  const [bulkDescription, setBulkDescription] = useState('');
   const [bulkSchedule, setBulkSchedule] = useState('');
   const [bulkPin, setBulkPin] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -333,22 +347,32 @@ export function MemberTreasuryPage() {
       return;
     }
     setSubmitting(true);
+    const cleanNote = singleDescription.trim();
     try {
       const res = await sendSingleTransfer(token, {
         to: recipient.trim(),
         amount: amt,
+        note: cleanNote || undefined,
         scheduledAt: singleSchedule || undefined,
         pin: singlePin.trim() || undefined,
       });
       if (res.ok) {
+        if (cleanNote && res.data.job?.id) {
+          saveJobDescription(res.data.job.id, cleanNote);
+        }
         startCooldown();
         void supabase?.rpc('log_treasury_activity', {
           p_mode: 'single',
           p_target: recipient.trim(),
           p_amount_label: formatNaira(amt),
-          p_detail: singleSchedule ? `Scheduled for ${singleSchedule}` : 'Immediate single send',
+          p_detail: cleanNote
+            ? `For: ${cleanNote}${singleSchedule ? ` (Scheduled ${singleSchedule})` : ''}`
+            : singleSchedule
+              ? `Scheduled for ${singleSchedule}`
+              : 'Immediate single send',
         });
         setSingleAmount('');
+        setSingleDescription('');
         setSingleSchedule('');
         notify(
           singleSchedule
@@ -384,22 +408,30 @@ export function MemberTreasuryPage() {
       return;
     }
     setSubmitting(true);
+    const cleanBulkNote = bulkDescription.trim();
     try {
       const res = await sendBatchTransfer(token, {
         recipients,
         amountPerUser: amtPer,
+        note: cleanBulkNote || undefined,
         scheduledAt: bulkSchedule || undefined,
         pin: bulkPin.trim() || undefined,
       });
       if (res.ok) {
+        if (cleanBulkNote && res.data.job?.id) {
+          saveJobDescription(res.data.job.id, cleanBulkNote);
+        }
         startCooldown();
         void supabase?.rpc('log_treasury_activity', {
           p_mode: 'bulk',
           p_target: `${recipients.length} recipients`,
           p_amount_label: `${formatNaira(amtPer)} each`,
-          p_detail: `Total ${formatNaira(amtPer * recipients.length)}`,
+          p_detail: cleanBulkNote
+            ? `For: ${cleanBulkNote} • Total ${formatNaira(amtPer * recipients.length)}`
+            : `Total ${formatNaira(amtPer * recipients.length)}`,
         });
         setBulkRecipients('');
+        setBulkDescription('');
         setBulkSchedule('');
         notify(
           bulkSchedule
@@ -830,6 +862,38 @@ export function MemberTreasuryPage() {
                     ))}
                   </div>
                 </div>
+                <div className="md:col-span-2">
+                  <label className="block font-body text-xs tracking-[0.14em] text-brand-cream uppercase">
+                    Transfer Description / What Is This Money For?
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={140}
+                    value={singleDescription}
+                    onChange={(e) => setSingleDescription(e.target.value)}
+                    placeholder="e.g. Payment for 1T order, Event prize, Birthday gift..."
+                    className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-body text-sm text-brand-white placeholder:text-brand-muted/60 focus:border-brand-gold focus:outline-none"
+                  />
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className="font-heading text-[10px] tracking-[0.14em] text-brand-muted uppercase">
+                      Quick Purpose:
+                    </span>
+                    {DESCRIPTION_PRESETS.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setSingleDescription(preset)}
+                        className={`cursor-pointer border px-2.5 py-0.5 font-body text-[11px] transition-colors ${
+                          singleDescription === preset
+                            ? 'border-brand-gold bg-brand-gold text-brand-black font-semibold'
+                            : 'hairline-border bg-brand-black text-brand-cream hover:border-brand-gold hover:text-brand-gold'
+                        }`}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div>
                   <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
                     Schedule For Later (Optional)
@@ -932,6 +996,38 @@ export function MemberTreasuryPage() {
                       maxLength={8}
                       className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-mono text-sm text-brand-white focus:border-brand-gold focus:outline-none"
                     />
+                  </div>
+                </div>
+                <div>
+                  <label className="block font-body text-xs tracking-[0.14em] text-brand-cream uppercase">
+                    Transfer Description / What Is This Money For?
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={140}
+                    value={bulkDescription}
+                    onChange={(e) => setBulkDescription(e.target.value)}
+                    placeholder="e.g. VATAR Giveaway, Competition winners payout, Event bonus..."
+                    className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-body text-sm text-brand-white placeholder:text-brand-muted/60 focus:border-brand-gold focus:outline-none"
+                  />
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className="font-heading text-[10px] tracking-[0.14em] text-brand-muted uppercase">
+                      Quick Purpose:
+                    </span>
+                    {DESCRIPTION_PRESETS.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setBulkDescription(preset)}
+                        className={`cursor-pointer border px-2.5 py-0.5 font-body text-[11px] transition-colors ${
+                          bulkDescription === preset
+                            ? 'border-brand-gold bg-brand-gold text-brand-black font-semibold'
+                            : 'hairline-border bg-brand-black text-brand-cream hover:border-brand-gold hover:text-brand-gold'
+                        }`}
+                      >
+                        {preset}
+                      </button>
+                    ))}
                   </div>
                 </div>
                 <Button
@@ -1348,6 +1444,7 @@ export function MemberTreasuryPage() {
                   const delivered = Math.max(0, (job.total || 0) - (job.remaining || 0));
                   const pct = job.total > 0 ? Math.min(100, Math.round((delivered / job.total) * 100)) : 0;
                   const recentLogs = (job.logs || []).slice(-4);
+                  const jobDesc = getJobDescription(job);
                   return (
                     <div
                       key={job.id}
@@ -1362,6 +1459,11 @@ export function MemberTreasuryPage() {
                             {formatNaira(delivered)} / {formatNaira(job.total)} ({pct}%)
                             {job.totalTxs ? ` • ${job.txCount || 0}/${job.totalTxs} chunks` : ''}
                           </p>
+                          {jobDesc && (
+                            <p className="mt-1 font-body text-xs text-brand-gold">
+                              Purpose: <span className="text-brand-cream">{jobDesc}</span>
+                            </p>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="border border-brand-gold/40 px-2.5 py-0.5 font-mono text-[11px] text-brand-gold uppercase">
@@ -1413,7 +1515,11 @@ export function MemberTreasuryPage() {
                                 status: String(job.status || 'COMPLETED').toUpperCase(),
                                 timestamp: new Date().toISOString(),
                                 txCount: job.txCount ?? null,
-                                note: recentLogs.length > 0 ? recentLogs[recentLogs.length - 1] : null,
+                                note:
+                                  jobDesc ||
+                                  (recentLogs.length > 0
+                                    ? recentLogs[recentLogs.length - 1]
+                                    : null),
                               })
                             }
                             className="inline-flex items-center gap-1"

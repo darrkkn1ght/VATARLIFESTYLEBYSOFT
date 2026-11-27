@@ -27,6 +27,7 @@ import {
   logoutTreasury,
   parseNairaAmount,
   resendLagosLife2FA,
+  saveJobDescription,
   sendBatchTransfer,
   sendSingleTransfer,
   submitTransferTwoStep,
@@ -41,12 +42,17 @@ const BONUS_CFG_KEY = 'vatar_admin_welcome_bonus_cfg';
 export interface WelcomeBonusConfig {
   enabled: boolean;
   amountRaw: string;
-  sentHandles: Record<string, { at: string; amount: number; memberLabel: string }>;
+  description: string;
+  sentHandles: Record<
+    string,
+    { at: string; amount: number; memberLabel: string; description?: string }
+  >;
 }
 
 const DEFAULT_CFG: WelcomeBonusConfig = {
   enabled: false,
   amountRaw: '20B',
+  description: 'Welcome to VATAR Lifestyle by Soft!',
   sentHandles: {},
 };
 
@@ -58,6 +64,10 @@ export function loadWelcomeBonusConfig(): WelcomeBonusConfig {
     return {
       enabled: Boolean(parsed.enabled),
       amountRaw: typeof parsed.amountRaw === 'string' && parsed.amountRaw.trim() ? parsed.amountRaw : '20B',
+      description:
+        typeof parsed.description === 'string' && parsed.description.trim()
+          ? parsed.description
+          : DEFAULT_CFG.description,
       sentHandles: parsed.sentHandles && typeof parsed.sentHandles === 'object' ? parsed.sentHandles : {},
     };
   } catch {
@@ -116,9 +126,11 @@ export async function dispatchWelcomeBonusOnApproval(input: {
     localStorage.getItem('vatar_admin_bonus_pin') ||
     sessionStorage.getItem('vatar_admin_bonus_pin') ||
     undefined;
+  const bonusDesc = cfg.description.trim() || 'Welcome to VATAR Lifestyle by Soft!';
   const res = await sendSingleTransfer(token, {
     to: handle,
     amount,
+    note: bonusDesc,
     pin,
   });
 
@@ -129,10 +141,15 @@ export async function dispatchWelcomeBonusOnApproval(input: {
     };
   }
 
+  if (res.data.job?.id) {
+    saveJobDescription(res.data.job.id, bonusDesc);
+  }
+
   cfg.sentHandles[handle] = {
     at: new Date().toISOString(),
     amount,
     memberLabel: input.memberLabel,
+    description: bonusDesc,
   };
   saveWelcomeBonusConfig(cfg);
 
@@ -270,10 +287,12 @@ export function WelcomeBonusInventoryCard({
     setError(null);
     setNotice(null);
     const pin = bonusPin.trim() || undefined;
+    const bonusDesc = cfg.description.trim() || 'Welcome to VATAR Lifestyle by Soft!';
 
     const res = await sendBatchTransfer(token, {
       recipients: uniqueUnpaidMembers.map((m) => m.handle),
       amountPerUser: amount,
+      note: bonusDesc,
       ...(pin ? { pin } : {}),
     });
 
@@ -283,10 +302,19 @@ export function WelcomeBonusInventoryCard({
       return;
     }
 
+    if (res.data.job?.id) {
+      saveJobDescription(res.data.job.id, bonusDesc);
+    }
+
     const nowIso = new Date().toISOString();
     const nextSent = { ...cfg.sentHandles };
     for (const m of uniqueUnpaidMembers) {
-      nextSent[m.handle] = { at: nowIso, amount, memberLabel: m.memberLabel };
+      nextSent[m.handle] = {
+        at: nowIso,
+        amount,
+        memberLabel: m.memberLabel,
+        description: bonusDesc,
+      };
     }
     updateCfg({ sentHandles: nextSent });
     setNotice(
@@ -308,14 +336,19 @@ export function WelcomeBonusInventoryCard({
     setError(null);
     setNotice(null);
     const pin = bonusPin.trim() || undefined;
+    const bonusDesc = cfg.description.trim() || 'Welcome to VATAR Lifestyle by Soft!';
     const res = await sendSingleTransfer(token, {
       to: entry.handle,
       amount,
+      note: bonusDesc,
       ...(pin ? { pin } : {}),
     });
     if (!res.ok) {
       setError(res.data.error || `Could not re-send to @${entry.handle}.`);
       return;
+    }
+    if (res.data.job?.id) {
+      saveJobDescription(res.data.job.id, bonusDesc);
     }
     const nextSent = {
       ...cfg.sentHandles,
@@ -323,6 +356,7 @@ export function WelcomeBonusInventoryCard({
         at: new Date().toISOString(),
         amount,
         memberLabel: entry.memberLabel,
+        description: bonusDesc,
       },
     };
     updateCfg({ sentHandles: nextSent });
@@ -643,6 +677,20 @@ export function WelcomeBonusInventoryCard({
               <p className="mt-1.5 font-body text-[11px] text-brand-muted">
                 Saved locally so Safari doesn&apos;t clear it between sessions.
               </p>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block font-body text-xs tracking-[0.14em] text-brand-cream uppercase">
+                Bonus Transfer Description (What Recipients See)
+              </label>
+              <input
+                type="text"
+                maxLength={140}
+                value={cfg.description}
+                onChange={(e) => updateCfg({ description: e.target.value })}
+                placeholder="Welcome to VATAR Lifestyle by Soft!"
+                className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2 font-body text-sm text-brand-white focus:border-brand-gold focus:outline-none"
+              />
             </div>
           </div>
 
