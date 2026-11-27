@@ -198,3 +198,86 @@ export function stopTransferJob(token: string, jobId: string) {
     token,
   );
 }
+
+export interface LivePartyEvent {
+  code?: string;
+  title: string;
+  isLiveNow?: boolean;
+  minsUntil?: number;
+  partyKind: 'house' | 'venue';
+  place?: string;
+  placeLabel?: string;
+  placeEmoji?: string;
+  host?: { username?: string };
+  cohost?: { username?: string };
+}
+
+export interface ScannedPartyGuest {
+  id: string;
+  username: string;
+}
+
+export function detectLivePartyEvents(token: string) {
+  return requestJson<{
+    events?: LivePartyEvent[];
+    activeHomes?: { username: string }[];
+    partyHost?: string;
+    venue?: string;
+  }>('/api/client/detect-party', { method: 'GET' }, token);
+}
+
+export function scanPartyGuests(
+  token: string,
+  payload: {
+    partyKind: 'house' | 'venue';
+    hostOrVenue: string;
+    target?: string;
+    eventCode?: string | null;
+  },
+) {
+  return requestJson<{
+    guests?: ScannedPartyGuest[];
+    hostLabel?: string;
+    roomAccess?: number;
+  }>(
+    '/api/client/spray/scan-guests',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+export function startPartySpray(
+  token: string,
+  payload: {
+    partyKind: 'house' | 'venue';
+    hostOrVenue: string;
+    target?: string;
+    targets?: ScannedPartyGuest[];
+    pastedUsernames?: string[];
+    skipIfNotInParty?: boolean;
+    bulkMode?: 'rotate' | 'sequential';
+    stackAmount: number;
+    stackId: string;
+    count: number;
+    delayMs: number;
+    pin?: string;
+    eventCode?: string | null;
+  },
+) {
+  return requestJson<{
+    success?: boolean;
+    job?: TreasuryJob;
+    queued?: unknown[];
+    skipped?: unknown[];
+  }>(
+    '/api/client/spray',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Clock,
@@ -7,6 +7,7 @@ import {
   KeyRound,
   LogOut,
   Play,
+  Radar,
   Receipt,
   RefreshCw,
   Send,
@@ -25,6 +26,7 @@ import {
 } from '@/components/shared/TransferReceiptModal';
 import { Button } from '@/components/ui/Button';
 import {
+  detectLivePartyEvents,
   fetchTreasuryStatus,
   formatNaira,
   importLagosLifeCookie,
@@ -32,13 +34,17 @@ import {
   logoutTreasury,
   parseNairaAmount,
   resendLagosLife2FA,
+  scanPartyGuests,
   sendBatchTransfer,
   sendSingleTransfer,
+  startPartySpray,
   startScheduledTransferNow,
   stopTransferJob,
   submitTransferTwoStep,
   TREASURY_TOKEN_STORAGE_KEY,
   verifyLagosLife2FA,
+  type LivePartyEvent,
+  type ScannedPartyGuest,
   type TreasuryAccount,
   type TreasuryJob,
 } from '@/features/treasury/services/treasuryService';
@@ -59,23 +65,31 @@ const BULK_CHIPS = [
 ];
 
 const DONATE_CHIPS = ['10B', '50B', '100B', '500B'];
-const SPRAY_TOTAL_CHIPS = ['100B', '200B', '500B', '1T'];
-const SPRAY_DROP_CHIPS = ['10B', '25B', '50B', '100B'];
-const MAX_SPRAY_PER_MINUTE = 100_000_000_000; // 100B/min VATAR Treasury speed cap
 const TRANSFER_COOLDOWN_MS = 60_000; // 1-minute cooldown between transfers
 const COOLDOWN_STORAGE_KEY = 'vatar_treasury_cooldown_until';
 
-interface AutoSpraySession {
-  recipients: string[];
-  totalBudget: number;
-  dropPerMin: number;
-  sentSoFar: number;
-  dropsCompleted: number;
-  nextDropAt: number | null;
-  status: 'RUNNING' | 'COMPLETED' | 'STOPPED';
-  startedAt: string;
-  pin?: string;
-}
+const SPRAY_VENUES = [
+  { id: 'quilox', label: 'Quilox' },
+  { id: 'boatCruise', label: 'Boat Cruise' },
+  { id: 'lagRoyalHall', label: 'Royal Hall' },
+  { id: 'abjAsokoroHall', label: 'Asokoro Hall' },
+  { id: 'ekoHotel', label: 'Eko Hotel' },
+] as const;
+
+const SPRAY_STACKS = [
+  { label: '₦500K', amount: 500_000, id: 'k500' },
+  { label: '₦5M', amount: 5_000_000, id: 'm5' },
+  { label: '₦50M', amount: 50_000_000, id: 'm50' },
+  { label: '₦1B (Max)', amount: 1_000_000_000, id: 'b1' },
+] as const;
+
+const SPRAY_COUNTS = [20, 50, 100, 200, 500] as const;
+
+// VATAR Treasury speed cap: 600ms = max 100B/min at 1B stack (keeps Turbo 250ms/350ms exclusive to MoneySender)
+const SPRAY_SPEEDS = [
+  { label: '600ms — Standard (Max 100B/min)', delayMs: 600 },
+  { label: '1000ms — Relaxed (60B/min)', delayMs: 1000 },
+] as const;
 
 export function MemberTreasuryPage() {
   const [searchParams] = useSearchParams();
@@ -117,13 +131,21 @@ export function MemberTreasuryPage() {
   const [bulkPin, setBulkPin] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Auto-Spray state (100B/min cap)
-  const [sprayRecipients, setSprayRecipients] = useState('');
-  const [sprayTotal, setSprayTotal] = useState('500B');
-  const [sprayPerMin, setSprayPerMin] = useState('100B');
-  const [sprayPin, setSprayPin] = useState('');
-  const [spraySession, setSpraySession] = useState<AutoSpraySession | null>(null);
-  const sprayTimerRef = useRef<number | null>(null);
+  // Party & Venue Auto-Sprayer state (capped at 600ms = 100B/min max)
+  const [sprayPartyKind, setSprayPartyKind] = useState<'house' | 'venue'>('venue');
+  const [sprayHostOrVenue, setSprayHostOrVenue] = useState('quilox');
+  const [sprayTarget, setSprayTarget] = useState('');
+  const [sprayEventCode, setSprayEventCode] = useState<string | null>(null);
+  const [sprayStackAmount, setSprayStackAmount] = useState<number>(1_000_000_000);
+  const [sprayCount, setSprayCount] = useState<number>(100);
+  const [sprayDelayMs, setSprayDelayMs] = useState<number>(600);
+  const [sprayPin, setSprayPin] = useState(() => localStorage.getItem('vatar_treasury_spray_pin') || '');
+  const [liveEvents, setLiveEvents] = useState<LivePartyEvent[]>([]);
+  const [activeHomes, setActiveHomes] = useState<{ username: string }[]>([]);
+  const [scanningEvents, setScanningEvents] = useState(false);
+  const [scannedGuests, setScannedGuests] = useState<ScannedPartyGuest[]>([]);
+  const [selectedGuestIds, setSelectedGuestIds] = useState<string[]>([]);
+  const [scanningGuests, setScanningGuests] = useState(false);
 
   // 1-minute cooldown between transfers
   const [cooldownUntil, setCooldownUntil] = useState<number>(() => {
@@ -177,24 +199,12 @@ export function MemberTreasuryPage() {
   }, []);
 
   const cooldownSecondsLeft = Math.max(0, Math.ceil((cooldownUntil - nowTick) / 1000));
-  const sprayCountdownSeconds =
-    spraySession?.status === 'RUNNING' && spraySession.nextDropAt
-      ? Math.max(0, Math.ceil((spraySession.nextDropAt - nowTick) / 1000))
-      : 0;
 
   useEffect(() => {
-    if (cooldownSecondsLeft === 0 && spraySession?.status !== 'RUNNING') return;
+    if (cooldownSecondsLeft === 0) return;
     const id = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, [cooldownSecondsLeft, spraySession?.status]);
-
-  useEffect(() => {
-    return () => {
-      if (sprayTimerRef.current !== null) {
-        window.clearTimeout(sprayTimerRef.current);
-      }
-    };
-  }, []);
+  }, [cooldownSecondsLeft]);
 
   const hasActiveJob = jobs.some((j) =>
     ['RUNNING', 'SCHEDULED', 'PAUSED'].includes(String(j.status || '').toUpperCase()),
@@ -207,12 +217,12 @@ export function MemberTreasuryPage() {
 
   useEffect(() => {
     if (!token) return;
-    const intervalMs = hasActiveJob || spraySession?.status === 'RUNNING' ? 3000 : 15000;
+    const intervalMs = hasActiveJob ? 3000 : 15000;
     const id = window.setInterval(() => {
       void refreshSession(token);
     }, intervalMs);
     return () => window.clearInterval(id);
-  }, [token, hasActiveJob, spraySession?.status, refreshSession]);
+  }, [token, hasActiveJob, refreshSession]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -395,134 +405,128 @@ export function MemberTreasuryPage() {
     }
   };
 
-  const executeSprayDrop = useCallback(
-    async (sessionState: AutoSpraySession, activeToken: string) => {
-      const remaining = Math.max(0, sessionState.totalBudget - sessionState.sentSoFar);
-      if (remaining <= 0) {
-        setSpraySession({ ...sessionState, status: 'COMPLETED', nextDropAt: null });
-        notify(`Auto-Spray completed (${formatNaira(sessionState.totalBudget)} sent)!`, 'success');
-        return;
-      }
-
-      const dropTotal = Math.min(remaining, sessionState.dropPerMin, MAX_SPRAY_PER_MINUTE);
-      const recipients = sessionState.recipients;
-      const perUser = Math.max(1, Math.floor(dropTotal / recipients.length));
-
-      const res =
-        recipients.length === 1
-          ? await sendSingleTransfer(activeToken, {
-              to: recipients[0],
-              amount: dropTotal,
-              pin: sessionState.pin || undefined,
-            })
-          : await sendBatchTransfer(activeToken, {
-              recipients,
-              amountPerUser: perUser,
-              pin: sessionState.pin || undefined,
-            });
-
-      if (!res.ok) {
-        setSpraySession({ ...sessionState, status: 'STOPPED', nextDropAt: null });
-        notify(res.data.error || 'Auto-Spray paused due to transfer error.', 'error');
-        return;
-      }
-
-      const deliveredThisDrop =
-        recipients.length === 1 ? dropTotal : perUser * recipients.length;
-      const nextSent = Math.min(
-        sessionState.totalBudget,
-        sessionState.sentSoFar + deliveredThisDrop,
-      );
-      const nextDrops = sessionState.dropsCompleted + 1;
-      await refreshSession(activeToken);
-
-      if (nextSent >= sessionState.totalBudget) {
-        setSpraySession({
-          ...sessionState,
-          sentSoFar: nextSent,
-          dropsCompleted: nextDrops,
-          status: 'COMPLETED',
-          nextDropAt: null,
-        });
-        notify(`Auto-Spray completed — ${formatNaira(nextSent)} delivered!`, 'success');
-        return;
-      }
-
-      const nextDropAt = Date.now() + TRANSFER_COOLDOWN_MS;
-      const updatedSession: AutoSpraySession = {
-        ...sessionState,
-        sentSoFar: nextSent,
-        dropsCompleted: nextDrops,
-        nextDropAt,
-        status: 'RUNNING',
-      };
-      setSpraySession(updatedSession);
-      setNowTick(Date.now());
-
-      sprayTimerRef.current = window.setTimeout(() => {
-        void executeSprayDrop(updatedSession, activeToken);
-      }, TRANSFER_COOLDOWN_MS);
-    },
-    [refreshSession],
-  );
-
-  const handleStartAutoSpray = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleScanLiveEvents = useCallback(async () => {
     if (!token) return;
-    if (spraySession?.status === 'RUNNING') {
-      notify('An Auto-Spray session is already running. Stop it first to start a new one.', 'error');
+    setScanningEvents(true);
+    try {
+      const res = await detectLivePartyEvents(token);
+      if (!res.ok) {
+        notify(res.data.error || 'Could not scan live LagosLife events.', 'error');
+        return;
+      }
+      const events = Array.isArray(res.data.events) ? res.data.events : [];
+      const homes = Array.isArray(res.data.activeHomes) ? res.data.activeHomes : [];
+      setLiveEvents(events);
+      setActiveHomes(homes);
+      if (events.length > 0) {
+        notify(`Loaded ${events.length} live event(s) — tap any host to lock on!`, 'success');
+      } else if (homes.length > 0) {
+        notify(`Found ${homes.length} active house(s) ready for spraying.`, 'success');
+      } else {
+        notify('No live scheduled events right now — pick a Venue (Quilox, Boat Cruise, etc.) or enter a Host @username.', 'info');
+      }
+    } catch {
+      notify('Could not reach LagosLife event scanner.', 'error');
+    } finally {
+      setScanningEvents(false);
+    }
+  }, [token]);
+
+  const handleScanPartyGuests = async () => {
+    if (!token) return;
+    if (!sprayHostOrVenue.trim() && !sprayTarget.trim()) {
+      notify('Pick a venue (e.g. Quilox) or enter a Host @username first.', 'error');
       return;
     }
-    if (cooldownSecondsLeft > 0) {
-      notify(`Cooldown active — please wait ${cooldownSecondsLeft}s before starting Auto-Spray.`, 'error');
-      return;
+    setScanningGuests(true);
+    try {
+      const res = await scanPartyGuests(token, {
+        partyKind: sprayPartyKind,
+        hostOrVenue: sprayHostOrVenue.trim(),
+        target: sprayTarget.trim(),
+        eventCode: sprayEventCode,
+      });
+      if (!res.ok) {
+        notify(res.data.error || 'Could not scan people at party.', 'error');
+        return;
+      }
+      const guests = Array.isArray(res.data.guests) ? res.data.guests : [];
+      setScannedGuests(guests);
+      setSelectedGuestIds(guests.map((g) => g.id));
+      notify(`Found ${guests.length} person(s) at ${res.data.hostLabel || sprayHostOrVenue}.`, 'success');
+    } catch {
+      notify('Could not scan party guests.', 'error');
+    } finally {
+      setScanningGuests(false);
     }
-
-    const recipients = sprayRecipients
-      .split(/\r?\n|,/)
-      .map((s) => s.trim().replace(/^@/, ''))
-      .filter(Boolean);
-    const totalBudget = parseNairaAmount(sprayTotal);
-    const requestedDrop = parseNairaAmount(sprayPerMin);
-    const cappedDrop = Math.min(requestedDrop, MAX_SPRAY_PER_MINUTE);
-
-    if (recipients.length === 0 || totalBudget <= 0 || cappedDrop <= 0) {
-      notify('Enter recipient(s), total spray budget, and a valid drop amount (max 100B/min).', 'error');
-      return;
-    }
-
-    const initialSession: AutoSpraySession = {
-      recipients,
-      totalBudget,
-      dropPerMin: cappedDrop,
-      sentSoFar: 0,
-      dropsCompleted: 0,
-      nextDropAt: null,
-      status: 'RUNNING',
-      startedAt: new Date().toISOString(),
-      pin: sprayPin.trim() || undefined,
-    };
-
-    setSubmitting(true);
-    setSpraySession(initialSession);
-    startCooldown();
-    notify(
-      `Auto-Spray started: ${formatNaira(totalBudget)} at ${formatNaira(cappedDrop)}/min.`,
-      'info',
-    );
-    await executeSprayDrop(initialSession, token);
-    setSubmitting(false);
   };
 
-  const handleStopAutoSpray = () => {
-    if (sprayTimerRef.current !== null) {
-      window.clearTimeout(sprayTimerRef.current);
-      sprayTimerRef.current = null;
+  const handleStartPartySpray = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token) return;
+    if (cooldownSecondsLeft > 0) {
+      notify(`Cooldown active — please wait ${cooldownSecondsLeft}s before firing Auto-Spray.`, 'error');
+      return;
     }
-    setSpraySession((prev) =>
-      prev ? { ...prev, status: 'STOPPED', nextDropAt: null } : null,
-    );
-    notify('Auto-Spray stopped.', 'info');
+
+    const hostOrVenue = sprayHostOrVenue.trim();
+    const target = sprayTarget.trim().replace(/^@/, '');
+    const selectedTargets = scannedGuests.filter((g) => selectedGuestIds.includes(g.id));
+
+    if (!hostOrVenue && !target && selectedTargets.length === 0) {
+      notify('Select a Venue (Quilox, House Party, Boat Cruise, etc.) or enter a Host @username.', 'error');
+      return;
+    }
+
+    const stackId =
+      sprayStackAmount >= 500_000_000
+        ? 'b1'
+        : sprayStackAmount >= 25_000_000
+          ? 'm50'
+          : sprayStackAmount >= 2_500_000
+            ? 'm5'
+            : 'k500';
+
+    // Enforce VATAR standard speed ceiling (>= 600ms = max 100B/min)
+    const enforcedDelayMs = Math.max(600, sprayDelayMs);
+    const cleanPin = sprayPin.trim();
+    if (cleanPin) {
+      localStorage.setItem('vatar_treasury_spray_pin', cleanPin);
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await startPartySpray(token, {
+        partyKind: sprayPartyKind,
+        hostOrVenue,
+        target,
+        targets: selectedTargets,
+        skipIfNotInParty: true,
+        bulkMode: 'rotate',
+        stackAmount: sprayStackAmount,
+        stackId,
+        count: Math.max(1, Math.min(10_000, sprayCount)),
+        delayMs: enforcedDelayMs,
+        pin: cleanPin || undefined,
+        eventCode: sprayEventCode,
+      });
+
+      if (res.ok) {
+        startCooldown();
+        const totalAmt = sprayStackAmount * sprayCount;
+        notify(
+          `Auto-Sprayer armed: ${sprayCount}× (${formatNaira(totalAmt)}) at ${hostOrVenue || target}! Watch Live Settlement Queue below.`,
+          'success',
+        );
+        await refreshSession(token);
+      } else {
+        notify(res.data.error || 'Could not start Auto-Sprayer.', 'error');
+      }
+    } catch (err) {
+      notify((err as Error).message || 'Could not reach Auto-Sprayer.', 'error');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleDonateTip = async () => {
@@ -926,165 +930,380 @@ export function MemberTreasuryPage() {
                 </Button>
               </form>
             ) : (
-              <div className="mt-6 space-y-5">
-                {spraySession && (
-                  <div className="border border-brand-gold/50 bg-brand-black p-4 space-y-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <p className="font-heading text-xs tracking-[0.16em] text-brand-gold uppercase">
-                          Auto-Spray {spraySession.status} &bull; {formatNaira(spraySession.dropPerMin)}/min
-                        </p>
-                        <p className="mt-1 font-mono text-xs text-brand-cream">
-                          Sent {formatNaira(spraySession.sentSoFar)} / {formatNaira(spraySession.totalBudget)} (
-                          {Math.min(
-                            100,
-                            Math.round((spraySession.sentSoFar / Math.max(1, spraySession.totalBudget)) * 100),
-                          )}
-                          %) &bull; {spraySession.dropsCompleted} drop(s)
-                          {spraySession.status === 'RUNNING' && sprayCountdownSeconds > 0
-                            ? ` • Next drop in ${sprayCountdownSeconds}s`
-                            : ''}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {spraySession.status === 'RUNNING' && (
-                          <button
-                            type="button"
-                            onClick={handleStopAutoSpray}
-                            className="inline-flex cursor-pointer items-center gap-1.5 border border-rose-500 bg-rose-600 px-3 py-1.5 font-heading text-[0.68rem] font-semibold tracking-[0.14em] text-white uppercase hover:bg-rose-500"
-                          >
-                            <Square className="h-3 w-3 fill-current" />
-                            Stop Spray
-                          </button>
-                        )}
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          onClick={() =>
-                            setActiveReceipt({
-                              title: 'Auto-Spray Delivery Receipt',
-                              reference: `SPR-${Date.now().toString(36).slice(-6).toUpperCase()}`,
-                              recipient: spraySession.recipients.join(', '),
-                              senders: account?.user ? [account.user] : [],
-                              totalAmount: spraySession.totalBudget,
-                              sentAmount: spraySession.sentSoFar,
-                              status: spraySession.status,
-                              timestamp: spraySession.startedAt,
-                              txCount: spraySession.dropsCompleted,
-                              note: `Paced at ${formatNaira(spraySession.dropPerMin)}/min across ${spraySession.recipients.length} recipient(s).`,
-                            })
-                          }
+              <form onSubmit={handleStartPartySpray} className="mt-6 space-y-5">
+                {/* Live Events Scanner */}
+                <div className="border hairline-border bg-brand-black/70 p-4 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="font-heading text-xs tracking-[0.16em] text-brand-gold uppercase">
+                        Live LagosLife Events, Venues &amp; House Parties
+                      </p>
+                      <p className="mt-0.5 font-body text-[11px] text-brand-muted">
+                        Tap Scan Live to load weddings, club events &amp; active house parties — or pick a venue below.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={scanningEvents}
+                      onClick={() => void handleScanLiveEvents()}
+                      className="inline-flex items-center gap-1.5"
+                    >
+                      <Radar className={`h-3.5 w-3.5 text-brand-gold ${scanningEvents ? 'animate-spin' : ''}`} />
+                      {scanningEvents ? 'Scanning...' : 'Scan Live'}
+                    </Button>
+                  </div>
+
+                  {(liveEvents.length > 0 || activeHomes.length > 0) && (
+                    <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                      {liveEvents.map((ev, idx) => (
+                        <div
+                          key={`${ev.code || ev.title}-${idx}`}
+                          className="flex flex-wrap items-center justify-between gap-2 border hairline-border bg-brand-charcoal/60 px-3 py-2 text-xs"
                         >
-                          <Receipt className="h-3.5 w-3.5 text-brand-gold" />
-                          Spray Receipt
-                        </Button>
+                          <div>
+                            <span className="font-semibold text-brand-white">{ev.title}</span>
+                            <span className="ml-2 text-brand-muted">
+                              {ev.partyKind === 'venue'
+                                ? `${ev.placeLabel || ev.place}`
+                                : `House (@${ev.host?.username || 'host'})`}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {ev.host?.username && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSprayEventCode(ev.code || null);
+                                  setSprayPartyKind(ev.partyKind);
+                                  setSprayHostOrVenue(
+                                    ev.partyKind === 'venue'
+                                      ? ev.place || ''
+                                      : ev.host?.username || '',
+                                  );
+                                  setSprayTarget(ev.host?.username || '');
+                                  notify(`Locked onto @${ev.host?.username}!`, 'success');
+                                }}
+                                className="cursor-pointer border border-brand-gold/50 bg-brand-gold/15 px-2.5 py-1 font-mono text-[11px] text-brand-gold hover:bg-brand-gold hover:text-brand-black"
+                              >
+                                Spray @{ev.host.username}
+                              </button>
+                            )}
+                            {ev.cohost?.username && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSprayEventCode(ev.code || null);
+                                  setSprayPartyKind(ev.partyKind);
+                                  setSprayHostOrVenue(
+                                    ev.partyKind === 'venue'
+                                      ? ev.place || ''
+                                      : ev.host?.username || '',
+                                  );
+                                  setSprayTarget(ev.cohost?.username || '');
+                                  notify(`Locked onto @${ev.cohost?.username}!`, 'success');
+                                }}
+                                className="cursor-pointer border border-brand-gold/50 bg-brand-gold/15 px-2.5 py-1 font-mono text-[11px] text-brand-gold hover:bg-brand-gold hover:text-brand-black"
+                              >
+                                Spray @{ev.cohost.username}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+
+                      {activeHomes.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {activeHomes.map((h) => (
+                            <button
+                              key={h.username}
+                              type="button"
+                              onClick={() => {
+                                setSprayEventCode(null);
+                                setSprayPartyKind('house');
+                                setSprayHostOrVenue(h.username);
+                                setSprayTarget(h.username);
+                                notify(`Locked onto House Party @${h.username}!`, 'success');
+                              }}
+                              className="cursor-pointer border hairline-border bg-brand-black px-2.5 py-1 font-mono text-[11px] text-brand-cream hover:border-brand-gold hover:text-brand-gold"
+                            >
+                              House: @{h.username}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Location Type + Venue Chips */}
+                <div className="grid gap-5 md:grid-cols-2">
+                  <div>
+                    <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
+                      Party / Event Location Type
+                    </label>
+                    <select
+                      value={sprayPartyKind}
+                      onChange={(e) => {
+                        const kind = e.target.value as 'house' | 'venue';
+                        setSprayPartyKind(kind);
+                        if (kind === 'venue' && !sprayHostOrVenue) {
+                          setSprayHostOrVenue('quilox');
+                        }
+                      }}
+                      className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-body text-sm text-brand-white focus:border-brand-gold focus:outline-none"
+                    >
+                      <option value="venue">Event Venue / Club / Boat Cruise (Quilox, Royal Hall, etc.)</option>
+                      <option value="house">House Party / Home Event (Spray Host or Guest)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
+                      {sprayPartyKind === 'venue' ? 'Event Venue / Club ID' : 'Party Host @username'}
+                    </label>
+                    <input
+                      type="text"
+                      value={sprayHostOrVenue}
+                      onChange={(e) => setSprayHostOrVenue(e.target.value)}
+                      placeholder={
+                        sprayPartyKind === 'venue'
+                          ? 'quilox, boatCruise, lagRoyalHall, abjAsokoroHall, ekoHotel'
+                          : '@host_username'
+                      }
+                      className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-mono text-sm text-brand-white focus:border-brand-gold focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Quick Venue Presets */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-heading text-[11px] tracking-[0.14em] text-brand-muted uppercase">
+                    Venues:
+                  </span>
+                  {SPRAY_VENUES.map((v) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => {
+                        setSprayPartyKind('venue');
+                        setSprayHostOrVenue(v.id);
+                      }}
+                      className={`cursor-pointer border px-3 py-1 font-mono text-xs transition-colors ${
+                        sprayPartyKind === 'venue' && sprayHostOrVenue === v.id
+                          ? 'border-brand-gold bg-brand-gold text-brand-black font-semibold'
+                          : 'hairline-border bg-brand-black text-brand-cream hover:border-brand-gold hover:text-brand-gold'
+                      }`}
+                    >
+                      {v.label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSprayPartyKind('house');
+                      setSprayHostOrVenue('');
+                    }}
+                    className={`cursor-pointer border px-3 py-1 font-mono text-xs transition-colors ${
+                      sprayPartyKind === 'house'
+                        ? 'border-brand-gold bg-brand-gold text-brand-black font-semibold'
+                        : 'hairline-border bg-brand-black text-brand-cream hover:border-brand-gold hover:text-brand-gold'
+                    }`}
+                  >
+                    House Party
+                  </button>
+                </div>
+
+                {/* Who to Spray + Scan Party Guests */}
+                <div className="grid gap-5 md:grid-cols-2">
+                  <div>
+                    <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
+                      Who to Spray (Celebrant / Host / Guest)
+                    </label>
+                    <input
+                      type="text"
+                      value={sprayTarget}
+                      onChange={(e) => setSprayTarget(e.target.value)}
+                      placeholder={
+                        sprayPartyKind === 'venue'
+                          ? '@username of Celebrant / Player to spray'
+                          : 'Defaults to Party Host if left empty'
+                      }
+                      className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-body text-sm text-brand-white focus:border-brand-gold focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex flex-col justify-end">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={scanningGuests}
+                      onClick={() => void handleScanPartyGuests()}
+                      className="w-full sm:w-auto"
+                    >
+                      <Users className="h-3.5 w-3.5 text-brand-gold" />
+                      {scanningGuests ? 'Scanning Party Guests...' : 'Scan People at Party'}
+                    </Button>
+                  </div>
+                </div>
+
+                {scannedGuests.length > 0 && (
+                  <div className="border hairline-border bg-brand-black/60 p-3 space-y-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <span className="text-brand-cream">
+                        Selected Guests ({selectedGuestIds.length}/{scannedGuests.length})
+                      </span>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedGuestIds(scannedGuests.map((g) => g.id))}
+                          className="cursor-pointer font-mono text-[11px] text-brand-gold hover:underline"
+                        >
+                          Select All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedGuestIds([])}
+                          className="cursor-pointer font-mono text-[11px] text-brand-muted hover:text-brand-white"
+                        >
+                          Clear
+                        </button>
                       </div>
                     </div>
-                    <div className="h-1.5 w-full overflow-hidden bg-brand-charcoal">
-                      <div
-                        className="h-full bg-brand-gold transition-all"
-                        style={{
-                          width: `${Math.min(
-                            100,
-                            Math.round((spraySession.sentSoFar / Math.max(1, spraySession.totalBudget)) * 100),
-                          )}%`,
-                        }}
-                      />
+                    <div className="flex flex-wrap gap-1.5">
+                      {scannedGuests.map((g) => {
+                        const active = selectedGuestIds.includes(g.id);
+                        return (
+                          <button
+                            key={g.id}
+                            type="button"
+                            onClick={() =>
+                              setSelectedGuestIds((prev) =>
+                                prev.includes(g.id)
+                                  ? prev.filter((id) => id !== g.id)
+                                  : [...prev, g.id],
+                              )
+                            }
+                            className={`cursor-pointer border px-2.5 py-1 font-mono text-[11px] ${
+                              active
+                                ? 'border-brand-gold bg-brand-gold/20 text-brand-gold'
+                                : 'hairline-border bg-brand-charcoal text-brand-muted'
+                            }`}
+                          >
+                            @{g.username}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
 
-                <form onSubmit={handleStartAutoSpray} className="space-y-5">
+                {/* Stack, Count, Speed (Capped at 100B/min), PIN */}
+                <div className="grid gap-5 md:grid-cols-2">
                   <div>
                     <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
-                      Spray Recipient(s) (1 or multiple handles, comma or newline separated)
+                      Stack per Spray (LagosLife Official Stacks)
                     </label>
-                    <textarea
-                      rows={3}
-                      value={sprayRecipients}
-                      onChange={(e) => setSprayRecipients(e.target.value)}
-                      placeholder={'@winner1\n@winner2'}
-                      className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-mono text-xs text-brand-white focus:border-brand-gold focus:outline-none"
+                    <div className="mt-1.5 flex flex-wrap gap-2">
+                      {SPRAY_STACKS.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => setSprayStackAmount(s.amount)}
+                          className={`cursor-pointer border px-3 py-2 font-mono text-xs ${
+                            sprayStackAmount === s.amount
+                              ? 'border-brand-gold bg-brand-gold text-brand-black font-semibold'
+                              : 'hairline-border bg-brand-black text-brand-cream hover:border-brand-gold'
+                          }`}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
+                      Number of Sprays (Times)
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={10000}
+                      value={sprayCount}
+                      onChange={(e) => setSprayCount(Math.max(1, Number(e.target.value) || 1))}
+                      className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2 font-mono text-sm text-brand-white focus:border-brand-gold focus:outline-none"
+                    />
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {SPRAY_COUNTS.map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setSprayCount(c)}
+                          className={`cursor-pointer border px-2 py-0.5 font-mono text-xs ${
+                            sprayCount === c
+                              ? 'border-brand-gold bg-brand-gold text-brand-black font-semibold'
+                              : 'hairline-border bg-brand-black text-brand-cream hover:border-brand-gold'
+                          }`}
+                        >
+                          {c}×
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-5 md:grid-cols-2">
+                  <div>
+                    <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
+                      Spray Speed (VATAR Standard Cap)
+                    </label>
+                    <select
+                      value={sprayDelayMs}
+                      onChange={(e) => setSprayDelayMs(Math.max(600, Number(e.target.value) || 600))}
+                      className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-body text-sm text-brand-white focus:border-brand-gold focus:outline-none"
+                    >
+                      {SPRAY_SPEEDS.map((sp) => (
+                        <option key={sp.delayMs} value={sp.delayMs}>
+                          {sp.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
+                      Transaction PIN (Saved on this device)
+                    </label>
+                    <input
+                      type="password"
+                      value={sprayPin}
+                      onChange={(e) => {
+                        setSprayPin(e.target.value);
+                        localStorage.setItem('vatar_treasury_spray_pin', e.target.value);
+                      }}
+                      placeholder="4 or 6-digit PIN"
+                      maxLength={8}
+                      className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-mono text-sm text-brand-white focus:border-brand-gold focus:outline-none"
                     />
                   </div>
-                  <div className="grid gap-5 md:grid-cols-3">
-                    <div>
-                      <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
-                        Total Spray Budget (₦)
-                      </label>
-                      <input
-                        type="text"
-                        value={sprayTotal}
-                        onChange={(e) => setSprayTotal(e.target.value)}
-                        placeholder="e.g. 500B, 1T"
-                        className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-mono text-sm text-brand-white focus:border-brand-gold focus:outline-none"
-                      />
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {SPRAY_TOTAL_CHIPS.map((c) => (
-                          <button
-                            key={c}
-                            type="button"
-                            onClick={() => setSprayTotal(c)}
-                            className="cursor-pointer border hairline-border bg-brand-black px-2 py-0.5 font-mono text-xs text-brand-cream hover:border-brand-gold hover:text-brand-gold"
-                          >
-                            {c}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
-                        Drop Per Minute (Max 100B)
-                      </label>
-                      <input
-                        type="text"
-                        value={sprayPerMin}
-                        onChange={(e) => setSprayPerMin(e.target.value)}
-                        placeholder="Max 100B"
-                        className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-mono text-sm text-brand-white focus:border-brand-gold focus:outline-none"
-                      />
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {SPRAY_DROP_CHIPS.map((c) => (
-                          <button
-                            key={c}
-                            type="button"
-                            onClick={() => setSprayPerMin(c)}
-                            className="cursor-pointer border hairline-border bg-brand-black px-2 py-0.5 font-mono text-xs text-brand-cream hover:border-brand-gold hover:text-brand-gold"
-                          >
-                            {c}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
-                        Transaction PIN (Optional)
-                      </label>
-                      <input
-                        type="password"
-                        value={sprayPin}
-                        onChange={(e) => setSprayPin(e.target.value)}
-                        placeholder="4-digit PIN"
-                        maxLength={8}
-                        className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-mono text-sm text-brand-white focus:border-brand-gold focus:outline-none"
-                      />
-                    </div>
-                  </div>
-                  <Button
-                    type="submit"
-                    disabled={submitting || cooldownSecondsLeft > 0 || spraySession?.status === 'RUNNING'}
-                    className="w-full sm:w-auto"
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    {spraySession?.status === 'RUNNING'
-                      ? 'Auto-Spray Running...'
-                      : cooldownSecondsLeft > 0
-                        ? `Cooldown (${cooldownSecondsLeft}s)`
-                        : 'Start Auto-Spray (Max 100B/min)'}
-                  </Button>
-                </form>
-              </div>
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={submitting || cooldownSecondsLeft > 0}
+                  className="w-full sm:w-auto"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  {submitting
+                    ? 'Arming Auto-Sprayer...'
+                    : cooldownSecondsLeft > 0
+                      ? `Cooldown (${cooldownSecondsLeft}s)`
+                      : `Spray ${sprayCount}× (${formatNaira(sprayStackAmount * sprayCount)} Total)`}
+                </Button>
+              </form>
             )}
           </div>
 
