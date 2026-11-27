@@ -132,11 +132,6 @@ const MemberTreasuryPage = lazy(() =>
     default: m.MemberTreasuryPage,
   })),
 );
-const MemberDataHubPage = lazy(() =>
-  import('@/pages/member/MemberDataHubPage').then((m) => ({
-    default: m.MemberDataHubPage,
-  })),
-);
 
 // Admin Control Center pages
 const AdminOverviewPage = lazy(() =>
@@ -188,7 +183,6 @@ const MEMBER_NAV_ITEMS: readonly NavItem[] = [
   { label: 'Leaderboard', to: ROUTES.dashboardLeaderboard },
   { label: 'Achievements', to: ROUTES.dashboardAchievements },
   { label: 'Marketplace', to: ROUTES.dashboardMarketplace },
-  { label: 'Data Hub', to: ROUTES.dashboardDataHub },
   { label: 'My Orders', to: ROUTES.dashboardMarketplaceOrders },
   { label: 'Treasury', to: ROUTES.dashboardTreasury },
 ];
@@ -263,7 +257,6 @@ export const router = createBrowserRouter([
               { path: ROUTES.dashboardLeaderboard, element: withSuspense(MemberLeaderboardPage) },
               { path: ROUTES.dashboardAchievements, element: withSuspense(MemberAchievementsPage) },
               { path: ROUTES.dashboardMarketplace, element: withSuspense(MemberMarketplacePage) },
-              { path: ROUTES.dashboardDataHub, element: withSuspense(MemberDataHubPage) },
               { path: ROUTES.dashboardMarketplaceOrders, element: withSuspense(MemberOrdersPage) },
               { path: ROUTES.dashboardTreasury, element: withSuspense(MemberTreasuryPage) },
             ],

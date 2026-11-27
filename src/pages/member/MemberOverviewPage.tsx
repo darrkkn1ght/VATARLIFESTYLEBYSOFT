@@ -9,7 +9,6 @@ import {
   Trophy,
   User,
   Wallet,
-  Wifi,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { PageContainer } from '@/components/layout/PageContainer';
@@ -33,15 +32,8 @@ const QUICK_ACTIONS = [
     highlight: true,
   },
   {
-    title: 'VATAR Data Hub',
-    subtitle: 'Buy MTN daily & weekly data with LagosLife funds',
-    to: ROUTES.dashboardDataHub,
-    icon: Wifi,
-    highlight: true,
-  },
-  {
     title: 'VATAR Treasury',
-    subtitle: 'Single, bulk & Auto-Spray LagosLife sends',
+    subtitle: 'Single, bulk & scheduled LagosLife sends',
     to: ROUTES.dashboardTreasury,
     icon: Wallet,
     highlight: false,
