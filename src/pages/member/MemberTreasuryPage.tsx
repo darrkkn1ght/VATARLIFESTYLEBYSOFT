@@ -25,6 +25,7 @@ import {
   type TransferReceiptData,
 } from '@/components/shared/TransferReceiptModal';
 import { Button } from '@/components/ui/Button';
+import { supabase } from '@/lib/supabase/client';
 import {
   detectLivePartyEvents,
   fetchTreasuryStatus,
@@ -341,6 +342,12 @@ export function MemberTreasuryPage() {
       });
       if (res.ok) {
         startCooldown();
+        void supabase?.rpc('log_treasury_activity', {
+          p_mode: 'single',
+          p_target: recipient.trim(),
+          p_amount_label: formatNaira(amt),
+          p_detail: singleSchedule ? `Scheduled for ${singleSchedule}` : 'Immediate single send',
+        });
         setSingleAmount('');
         setSingleSchedule('');
         notify(
@@ -386,6 +393,12 @@ export function MemberTreasuryPage() {
       });
       if (res.ok) {
         startCooldown();
+        void supabase?.rpc('log_treasury_activity', {
+          p_mode: 'bulk',
+          p_target: `${recipients.length} recipients`,
+          p_amount_label: `${formatNaira(amtPer)} each`,
+          p_detail: `Total ${formatNaira(amtPer * recipients.length)}`,
+        });
         setBulkRecipients('');
         setBulkSchedule('');
         notify(
@@ -514,6 +527,12 @@ export function MemberTreasuryPage() {
       if (res.ok) {
         startCooldown();
         const totalAmt = sprayStackAmount * sprayCount;
+        void supabase?.rpc('log_treasury_activity', {
+          p_mode: 'spray',
+          p_target: target || hostOrVenue || 'party',
+          p_amount_label: formatNaira(totalAmt),
+          p_detail: `${sprayCount}x at ${hostOrVenue || sprayPartyKind}`,
+        });
         notify(
           `Auto-Sprayer armed: ${sprayCount}× (${formatNaira(totalAmt)}) at ${hostOrVenue || target}! Watch Live Settlement Queue below.`,
           'success',

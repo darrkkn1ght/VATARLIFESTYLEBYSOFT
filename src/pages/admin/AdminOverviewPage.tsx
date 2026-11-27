@@ -17,6 +17,7 @@ import { EmptyState } from '@/components/shared/EmptyState';
 import { SectionHeading } from '@/components/shared/SectionHeading';
 import { Button } from '@/components/ui/Button';
 import { RoleBadge } from '@/features/administration/components/MembershipStatusBadge';
+import { AdminLiveActivityPanel } from '@/features/administration/components/AdminLiveActivityPanel';
 import {
   fetchAdminMembers,
   fetchRecentAuditActivity,
@@ -158,16 +159,19 @@ export function AdminOverviewPage() {
         </PageContainer>
       </section>
 
-      <PageContainer className="py-12 sm:py-16">
+      <PageContainer className="space-y-8 py-6 sm:py-10">
         {error && (
           <div
             role="alert"
-            className="mb-8 flex items-start gap-3 border border-red-400/40 bg-red-950/30 p-4 text-sm text-red-200"
+            className="flex items-start gap-3 border border-red-400/40 bg-red-950/30 p-4 text-sm text-red-200"
           >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-400" aria-hidden="true" />
             <p>{error}</p>
           </div>
         )}
+
+        {/* Live Online Users + Unified Transaction Feed */}
+        <AdminLiveActivityPanel />
 
         {/* Membership Metrics */}
         <section aria-label="Membership summary metrics">

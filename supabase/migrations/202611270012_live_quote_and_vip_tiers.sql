@@ -544,3 +544,48 @@ GRANT EXECUTE ON FUNCTION public.get_public_reviews(INTEGER) TO anon, authentica
 
 REVOKE ALL ON FUNCTION public.submit_site_review(INTEGER, TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.submit_site_review(INTEGER, TEXT) TO authenticated;
+
+-- ============================================================================
+-- 10. SAFE TREASURY ACTIVITY LOGGER (Admin Transaction Visibility, Zero Secrets)
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.log_treasury_activity(
+  p_mode TEXT,
+  p_target TEXT,
+  p_amount_label TEXT,
+  p_detail TEXT DEFAULT NULL
+)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  v_uid UUID := auth.uid();
+  v_mode TEXT := lower(trim(COALESCE(p_mode, 'single')));
+BEGIN
+  IF v_uid IS NULL OR NOT public.is_approved_member(v_uid) THEN
+    RETURN;
+  END IF;
+
+  IF v_mode NOT IN ('single', 'bulk', 'spray') THEN
+    v_mode := 'single';
+  END IF;
+
+  INSERT INTO public.audit_logs (actor_id, action, entity_type, target_user_id, metadata)
+  VALUES (
+    v_uid,
+    'treasury_' || v_mode || '_started',
+    'treasury_transfer',
+    v_uid,
+    jsonb_build_object(
+      'mode', v_mode,
+      'target', left(trim(COALESCE(p_target, '')), 80),
+      'amount_label', left(trim(COALESCE(p_amount_label, '')), 40),
+      'detail', left(trim(COALESCE(p_detail, '')), 120)
+    )
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.log_treasury_activity(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.log_treasury_activity(TEXT, TEXT, TEXT, TEXT) TO authenticated;

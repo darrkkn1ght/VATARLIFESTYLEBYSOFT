@@ -5,6 +5,7 @@ import { PageContainer } from '@/components/layout/PageContainer';
 import { fetchUnreadAnnouncementsCount } from '@/features/announcements/services/announcementService';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { fetchPendingMoneyPackCount } from '@/features/marketplace/services/moneyPackService';
+import { useBroadcastSitePresence } from '@/hooks/useSitePresence';
 import { cn } from '@/lib/utilities/cn';
 import { ROUTES } from '@/routes/paths';
 import type { NavItem } from '@/types/navigation';
@@ -15,6 +16,7 @@ interface PortalLayoutProps {
 }
 
 export function PortalLayout({ sectionLabel, navItems }: PortalLayoutProps) {
+  useBroadcastSitePresence();
   const { isAuthenticated, isApprovedMember, isAdmin, profile, signOut } = useAuth();
   const navigate = useNavigate();
   const [unreadAnnouncements, setUnreadAnnouncements] = useState(0);

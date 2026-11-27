@@ -917,6 +917,15 @@ export type Database = {
         Args: { p_rating: number; p_comment: string };
         Returns: SiteReviewRecord;
       };
+      log_treasury_activity: {
+        Args: {
+          p_mode: string;
+          p_target: string;
+          p_amount_label: string;
+          p_detail?: string | null;
+        };
+        Returns: undefined;
+      };
     };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;

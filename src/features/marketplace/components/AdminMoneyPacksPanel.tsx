@@ -121,6 +121,7 @@ export function AdminMoneyPacksPanel() {
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const [confirmOrder, setConfirmOrder] = useState<AdminMoneyPackOrderView | null>(null);
   const [stoppingJobId, setStoppingJobId] = useState<string | null>(null);
+  const [showPipelineJobs, setShowPipelineJobs] = useState(false);
   const [activeReceipt, setActiveReceipt] = useState<TransferReceiptData | null>(null);
   const [dispatchesByOrder, setDispatchesByOrder] = useState<
     Record<string, PipelineDispatchItem[]>
@@ -213,6 +214,13 @@ export function AdminMoneyPacksPanel() {
       ),
     [allPipelineJobs],
   );
+
+  // Auto-expand Live Pipeline Monitor whenever an active transfer starts
+  useEffect(() => {
+    if (hasActivePipelineJob) {
+      setShowPipelineJobs(true);
+    }
+  }, [hasActivePipelineJob]);
 
   // Silently poll sender jobs every 3s ONLY while a transfer is actively running
   useEffect(() => {
@@ -842,29 +850,49 @@ export function AdminMoneyPacksPanel() {
         )}
       </section>
 
-      {/* 1B. LIVE PIPELINE MONITOR (PROGRESS %, EMERGENCY STOP, LOGS & RECEIPT) */}
+      {/* 1B. LIVE PIPELINE MONITOR (COLLAPSIBLE & SCROLLABLE) */}
       {allPipelineJobs.length > 0 && (
-        <section className="border border-brand-gold/45 bg-brand-charcoal/70 p-5 sm:p-6">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        <section className="border border-brand-gold/45 bg-brand-charcoal/70">
+          <button
+            type="button"
+            onClick={() => setShowPipelineJobs((prev) => !prev)}
+            className="flex w-full cursor-pointer flex-wrap items-center justify-between gap-3 px-5 py-4 text-left"
+          >
             <div>
               <p className="heading-eyebrow flex items-center gap-1.5">
                 <Zap className="h-3.5 w-3.5 text-brand-gold" />
-                Live Pipeline Monitor &amp; Transfer History
+                Live Pipeline Monitor &amp; Transfer History ({allPipelineJobs.length})
               </p>
-              <p className="mt-1 font-body text-xs text-brand-muted">
-                Track live % sent, stop any active transfer immediately, inspect errors, or generate a receipt.
+              <p className="mt-0.5 font-body text-xs text-brand-muted">
+                Track live % sent, stop active transfers, inspect errors, or view receipts.
               </p>
             </div>
-            {hasActivePipelineJob && (
-              <span className="inline-flex items-center gap-1.5 border border-brand-gold/50 bg-brand-gold/15 px-2.5 py-1 font-heading text-[0.65rem] tracking-[0.16em] text-brand-gold uppercase">
-                <Loader2 className="h-3 w-3 animate-spin" />
-                Live Updating
+            <div className="flex items-center gap-2">
+              {hasActivePipelineJob && (
+                <span className="inline-flex items-center gap-1.5 border border-brand-gold/50 bg-brand-gold/15 px-2.5 py-1 font-heading text-[0.65rem] tracking-[0.16em] text-brand-gold uppercase">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Live Updating
+                </span>
+              )}
+              <span className="inline-flex items-center gap-1 border hairline-border bg-brand-black px-2.5 py-1 font-heading text-[0.65rem] tracking-[0.14em] text-brand-cream uppercase">
+                {showPipelineJobs ? (
+                  <>
+                    Minimize
+                    <ChevronUp className="h-3.5 w-3.5 text-brand-gold" />
+                  </>
+                ) : (
+                  <>
+                    Expand
+                    <ChevronDown className="h-3.5 w-3.5 text-brand-gold" />
+                  </>
+                )}
               </span>
-            )}
-          </div>
+            </div>
+          </button>
 
-          <div className="mt-4 space-y-3">
-            {allPipelineJobs.slice(0, 12).map(({ sender, job }) => {
+          {showPipelineJobs && (
+            <div className="max-h-72 space-y-3 overflow-y-auto border-t hairline-border p-4 sm:p-5">
+              {allPipelineJobs.slice(0, 20).map(({ sender, job }) => {
               const total = Number(job.total || 0);
               const remaining = Math.max(0, Number(job.remaining || 0));
               const sent = Math.max(0, total - remaining);
@@ -1008,7 +1036,8 @@ export function AdminMoneyPacksPanel() {
                 </div>
               );
             })}
-          </div>
+            </div>
+          )}
         </section>
       )}
 
