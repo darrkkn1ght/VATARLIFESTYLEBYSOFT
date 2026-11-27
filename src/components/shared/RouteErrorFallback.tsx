@@ -1,24 +1,47 @@
 import { useEffect } from 'react';
 import { RefreshCw } from 'lucide-react';
-import { useRouteError } from 'react-router-dom';
+import { isRouteErrorResponse, useRouteError } from 'react-router-dom';
 
 const RELOAD_GUARD_KEY = 'vatar_chunk_reload_ts';
 
+function extractErrorMessage(error: unknown): string {
+  if (isRouteErrorResponse(error)) {
+    return `${error.status} ${error.statusText}`;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return '';
+}
+
 function isChunkLoadError(error: unknown): boolean {
-  const message =
-    error instanceof Error
-      ? error.message
-      : typeof error === 'string'
-        ? error
-        : '';
-  const lower = message.toLowerCase();
+  const lower = extractErrorMessage(error).toLowerCase();
   return (
     lower.includes('importing a module script failed') ||
     lower.includes('failed to fetch dynamically imported module') ||
+    lower.includes('failed to load module script') ||
+    lower.includes('not a valid javascript mime type') ||
+    lower.includes('mime type') ||
+    lower.includes('unable to preload css') ||
     lower.includes('loading chunk') ||
     lower.includes('chunkloaderror') ||
-    lower.includes('error loading dynamically imported module')
+    lower.includes('error loading dynamically imported module') ||
+    lower === 'load failed' ||
+    lower === 'failed to fetch'
   );
+}
+
+export function reloadBypassingCache(): void {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set('_v', String(Date.now()));
+    window.location.replace(url.toString());
+  } catch {
+    window.location.reload();
+  }
 }
 
 export function triggerSafeChunkReload(): boolean {
@@ -28,7 +51,7 @@ export function triggerSafeChunkReload(): boolean {
     // Guard against reload loops: only auto-reload once every 15 seconds
     if (now - lastTs > 15_000) {
       sessionStorage.setItem(RELOAD_GUARD_KEY, String(now));
-      window.location.reload();
+      reloadBypassingCache();
       return true;
     }
   } catch {
@@ -40,6 +63,7 @@ export function triggerSafeChunkReload(): boolean {
 export function RouteErrorFallback() {
   const error = useRouteError();
   const chunkError = isChunkLoadError(error);
+  const rawMessage = extractErrorMessage(error);
 
   useEffect(() => {
     if (chunkError) {
@@ -58,20 +82,25 @@ export function RouteErrorFallback() {
         </h1>
         <p className="mt-3 font-body text-sm leading-relaxed text-brand-muted">
           {chunkError
-            ? 'The site was just updated. Tap below to refresh and load the latest version.'
-            : 'Something interrupted loading this page. Refreshing usually fixes it immediately.'}
+            ? 'The site was just updated. Tap below to load the latest version.'
+            : 'Something interrupted loading this page. Tap Reload below to load a fresh copy.'}
         </p>
+        {rawMessage && !chunkError && (
+          <p className="mt-3 border hairline-border bg-brand-black/70 px-3 py-2 font-mono text-[11px] break-words text-brand-muted">
+            {rawMessage}
+          </p>
+        )}
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
           <button
             type="button"
-            onClick={() => window.location.reload()}
+            onClick={() => reloadBypassingCache()}
             className="inline-flex cursor-pointer items-center gap-2 border border-brand-gold bg-brand-gold px-5 py-2.5 font-heading text-xs font-semibold tracking-[0.18em] text-brand-black uppercase transition-colors hover:border-brand-cream hover:bg-brand-cream"
           >
             <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
             Reload Page
           </button>
           <a
-            href="/"
+            href={`/?_v=${Date.now()}`}
             className="inline-flex items-center border hairline-border bg-brand-black px-5 py-2.5 font-heading text-xs tracking-[0.18em] text-brand-cream uppercase transition-colors hover:border-brand-gold hover:text-brand-gold"
           >
             Go Home

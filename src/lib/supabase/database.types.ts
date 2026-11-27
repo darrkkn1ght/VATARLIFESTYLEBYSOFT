@@ -437,6 +437,45 @@ export type SiteReviewRecord = {
   updated_at: string;
 };
 
+export type VendorStoreStatus = 'pending' | 'approved' | 'suspended';
+
+export type VendorStoreRecord = {
+  id: string;
+  owner_id: string;
+  slug: string;
+  store_name: string;
+  tagline: string;
+  description: string;
+  bank_name: string;
+  account_number: string;
+  account_name: string;
+  status: VendorStoreStatus;
+  is_verified: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type VendorStoreDirectoryRow = VendorStoreRecord & {
+  owner_username: string;
+  owner_full_name: string;
+  owner_lagos_life: string;
+  active_listings_count: number;
+  completed_sales_count: number;
+};
+
+export type OrderChatMessageRecord = {
+  id: string;
+  order_id: string;
+  sender_id: string;
+  sender_role: 'buyer' | 'seller' | 'admin';
+  body: string;
+  created_at: string;
+};
+
+export type OrderChatMessageRow = OrderChatMessageRecord & {
+  sender_username: string;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -684,6 +723,18 @@ export type Database = {
         Update: never;
         Relationships: [];
       };
+      vendor_stores: {
+        Row: VendorStoreRecord;
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
+      marketplace_order_messages: {
+        Row: OrderChatMessageRecord;
+        Insert: never;
+        Update: never;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -925,6 +976,38 @@ export type Database = {
           p_detail?: string | null;
         };
         Returns: undefined;
+      };
+      upsert_my_vendor_store: {
+        Args: {
+          p_store_name: string;
+          p_slug?: string | null;
+          p_tagline?: string;
+          p_description?: string;
+          p_bank_name?: string;
+          p_account_number?: string;
+          p_account_name?: string;
+        };
+        Returns: VendorStoreRecord;
+      };
+      get_vendor_stores: {
+        Args: Record<string, never>;
+        Returns: VendorStoreDirectoryRow[];
+      };
+      admin_moderate_vendor_store: {
+        Args: {
+          p_store_id: string;
+          p_status: VendorStoreStatus;
+          p_is_verified?: boolean | null;
+        };
+        Returns: VendorStoreRecord;
+      };
+      get_order_chat_messages: {
+        Args: { p_order_id: string };
+        Returns: OrderChatMessageRow[];
+      };
+      send_order_chat_message: {
+        Args: { p_order_id: string; p_body: string };
+        Returns: OrderChatMessageRecord;
       };
     };
     Enums: Record<string, never>;

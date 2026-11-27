@@ -10,6 +10,17 @@ window.addEventListener('vite:preloadError', (event) => {
   triggerSafeChunkReload();
 });
 
+// Clean up cache-busting query param after a fresh reload
+try {
+  const currentUrl = new URL(window.location.href);
+  if (currentUrl.searchParams.has('_v')) {
+    currentUrl.searchParams.delete('_v');
+    window.history.replaceState(null, '', currentUrl.pathname + currentUrl.search + currentUrl.hash);
+  }
+} catch {
+  // Ignore URL parsing edge cases
+}
+
 const rootElement = document.getElementById('root');
 
 if (!rootElement) {

@@ -6,6 +6,7 @@ import {
   ClipboardList,
   Clock,
   Loader2,
+  MessageSquare,
   Receipt,
   RefreshCw,
   ShieldAlert,
@@ -21,6 +22,11 @@ import {
   type TransferReceiptData,
 } from '@/components/shared/TransferReceiptModal';
 import { Button } from '@/components/ui/Button';
+import { AdminVendorsPanel } from '@/features/vendors/components/AdminVendorsPanel';
+import {
+  OrderChatModal,
+  type OrderChatContext,
+} from '@/features/vendors/components/OrderChatModal';
 import {
   DisputeStatusBadge,
   ListingAvailabilityBadge,
@@ -71,7 +77,7 @@ function formatDateTime(iso: string | null): string {
 
 export function AdminMarketplacePage() {
   const [activeTab, setActiveTab] = useState<
-    'money_packs' | 'listings' | 'disputes' | 'orders'
+    'money_packs' | 'vendors' | 'listings' | 'disputes' | 'orders'
   >('money_packs');
   const [listings, setListings] = useState<MarketplaceListingWithSellerRow[]>([]);
   const [disputes, setDisputes] = useState<AdminDisputeView[]>([]);
@@ -108,6 +114,7 @@ export function AdminMarketplacePage() {
   // Order event inspector
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [activeReceipt, setActiveReceipt] = useState<TransferReceiptData | null>(null);
+  const [activeChat, setActiveChat] = useState<OrderChatContext | null>(null);
   const [orderEvents, setOrderEvents] = useState<
     Record<string, MarketplaceOrderEventRecord[]>
   >({});
@@ -301,6 +308,18 @@ export function AdminMarketplacePage() {
           </button>
           <button
             type="button"
+            onClick={() => setActiveTab('vendors')}
+            className={cn(
+              'cursor-pointer border px-4 py-2.5 font-heading text-xs tracking-[0.18em] uppercase',
+              activeTab === 'vendors'
+                ? 'border-brand-gold bg-brand-gold text-brand-black'
+                : 'hairline-border bg-brand-charcoal text-brand-muted hover:text-brand-white',
+            )}
+          >
+            Vendor Stores
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab('listings')}
             className={cn(
               'cursor-pointer border px-4 py-2.5 font-heading text-xs tracking-[0.18em] uppercase',
@@ -339,6 +358,9 @@ export function AdminMarketplacePage() {
 
         {/* TAB 0: OFFICIAL MONEY PACKS & MULTI-PIPELINE SENDERS */}
         {activeTab === 'money_packs' && <AdminMoneyPacksPanel />}
+
+        {/* TAB 0B: VENDOR STOREFRONTS MODERATION */}
+        {activeTab === 'vendors' && <AdminVendorsPanel />}
 
         {/* TAB 1: LISTINGS MODERATION */}
         {activeTab === 'listings' && (
@@ -588,6 +610,21 @@ export function AdminMarketplacePage() {
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            onClick={() =>
+                              setActiveChat({
+                                orderId: order.id,
+                                orderTitle: listingTitle,
+                                counterpartyLabel: `@${buyerUsername} ↔ @${sellerUsername}`,
+                                agreedPriceLabel: `${order.agreed_price_currency} ${order.agreed_price_amount.toLocaleString()}`,
+                              })
+                            }
+                          >
+                            <MessageSquare className="h-3.5 w-3.5" />
+                            Chat
+                          </Button>
                           <Button
                             variant="secondary"
                             size="sm"
@@ -846,6 +883,7 @@ export function AdminMarketplacePage() {
         receipt={activeReceipt}
         onClose={() => setActiveReceipt(null)}
       />
+      <OrderChatModal chat={activeChat} onClose={() => setActiveChat(null)} />
     </div>
   );
 }

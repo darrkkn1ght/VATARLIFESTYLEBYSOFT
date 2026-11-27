@@ -100,11 +100,11 @@ export function AdminLiveActivityPanel() {
       combined.push({
         id: `cur:${o.id}`,
         kind: 'currency',
-        title: `${o.order_code} • ${o.pack_label} (₦${o.total_price_ngn.toLocaleString()})`,
+        title: `${o.order_code} • ${o.pack_label} (₦${Number(o.total_price_ngn ?? 0).toLocaleString()})`,
         subtitle: `@${o.buyer_username} → @${o.lagos_life_username}${
           o.vip_tier ? ` • ${o.vip_tier.toUpperCase()} VIP` : ''
         }`,
-        status: MONEY_PACK_STATUS_LABELS[o.status],
+        status: MONEY_PACK_STATUS_LABELS[o.status] ?? String(o.status ?? '').toUpperCase(),
         timestamp: o.updated_at || o.created_at,
       });
     }
@@ -113,9 +113,9 @@ export function AdminLiveActivityPanel() {
       combined.push({
         id: `vip:${v.id}`,
         kind: 'vip',
-        title: `${v.request_code} • ${v.tier.toUpperCase()} VIP (₦${v.price_ngn.toLocaleString()}/mo)`,
-        subtitle: `@${v.member_username} (${v.discount_percent}% off)`,
-        status: v.status.replace(/_/g, ' ').toUpperCase(),
+        title: `${v.request_code} • ${String(v.tier ?? '').toUpperCase()} VIP (₦${Number(v.price_ngn ?? 0).toLocaleString()}/mo)`,
+        subtitle: `@${v.member_username} (${v.discount_percent ?? 0}% off)`,
+        status: String(v.status ?? '').replace(/_/g, ' ').toUpperCase(),
         timestamp: v.updated_at || v.created_at,
       });
     }
@@ -124,9 +124,9 @@ export function AdminLiveActivityPanel() {
       combined.push({
         id: `ven:${m.order.id}`,
         kind: 'vendor',
-        title: `${m.listingTitle} • ${m.order.agreed_price_currency} ${m.order.agreed_price_amount.toLocaleString()}`,
+        title: `${m.listingTitle} • ${m.order.agreed_price_currency} ${Number(m.order.agreed_price_amount ?? 0).toLocaleString()}`,
         subtitle: `Buyer @${m.buyerUsername} ↔ Seller @${m.sellerUsername}`,
-        status: m.order.status.replace(/_/g, ' ').toUpperCase(),
+        status: String(m.order.status ?? '').replace(/_/g, ' ').toUpperCase(),
         timestamp: m.order.updated_at || m.order.created_at,
       });
     }

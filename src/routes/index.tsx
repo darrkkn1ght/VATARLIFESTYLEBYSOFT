@@ -1,8 +1,6 @@
-import { lazy, Suspense, type ComponentType, type ReactElement } from 'react';
 import { createBrowserRouter } from 'react-router-dom';
 import { PortalLayout } from '@/components/layout/PortalLayout';
 import { PublicLayout } from '@/components/layout/PublicLayout';
-import { PageLoadingFallback } from '@/components/shared/PageLoadingFallback';
 import { RouteErrorFallback } from '@/components/shared/RouteErrorFallback';
 import {
   RedirectIfAuthenticated,
@@ -10,168 +8,39 @@ import {
   RequireApprovedMember,
   RequireAuth,
 } from '@/features/auth/components/RouteGuards';
+import { AdminAnnouncementsPage } from '@/pages/admin/AdminAnnouncementsPage';
+import { AdminCompetitionsPage } from '@/pages/admin/AdminCompetitionsPage';
+import { AdminLeaderboardPage } from '@/pages/admin/AdminLeaderboardPage';
+import { AdminMarketplacePage } from '@/pages/admin/AdminMarketplacePage';
+import { AdminMembersPage } from '@/pages/admin/AdminMembersPage';
+import { AdminOverviewPage } from '@/pages/admin/AdminOverviewPage';
+import { MemberAchievementsPage } from '@/pages/member/MemberAchievementsPage';
+import { MemberActivityPage } from '@/pages/member/MemberActivityPage';
+import { MemberAnnouncementsPage } from '@/pages/member/MemberAnnouncementsPage';
+import { MemberCompetitionDetailPage } from '@/pages/member/MemberCompetitionDetailPage';
+import { MemberCompetitionsPage } from '@/pages/member/MemberCompetitionsPage';
+import { MemberLeaderboardPage } from '@/pages/member/MemberLeaderboardPage';
+import { MemberMarketplacePage } from '@/pages/member/MemberMarketplacePage';
+import { MemberMembershipPage } from '@/pages/member/MemberMembershipPage';
+import { MemberOrdersPage } from '@/pages/member/MemberOrdersPage';
+import { MemberOverviewPage } from '@/pages/member/MemberOverviewPage';
+import { MemberProfilePage } from '@/pages/member/MemberProfilePage';
+import { MemberTreasuryPage } from '@/pages/member/MemberTreasuryPage';
+import { MemberVendorsPage } from '@/pages/member/MemberVendorsPage';
+import { AboutPage } from '@/pages/public/AboutPage';
+import { CompetitionsPage } from '@/pages/public/CompetitionsPage';
+import { ContactPage } from '@/pages/public/ContactPage';
+import { HomePage } from '@/pages/public/HomePage';
+import { LeaderboardPage } from '@/pages/public/LeaderboardPage';
+import { LoginPage } from '@/pages/public/LoginPage';
+import { MarketplacePage } from '@/pages/public/MarketplacePage';
+import { MembershipPage } from '@/pages/public/MembershipPage';
+import { MembershipStatusPage } from '@/pages/public/MembershipStatusPage';
+import { NotFoundPage } from '@/pages/public/NotFoundPage';
+import { RegisterPage } from '@/pages/public/RegisterPage';
+import { UpdatePasswordPage } from '@/pages/public/UpdatePasswordPage';
 import { ROUTES } from '@/routes/paths';
 import type { NavItem } from '@/types/navigation';
-
-// Public website pages (route-level code split)
-const HomePage = lazy(() =>
-  import('@/pages/public/HomePage').then((m) => ({ default: m.HomePage })),
-);
-const AboutPage = lazy(() =>
-  import('@/pages/public/AboutPage').then((m) => ({ default: m.AboutPage })),
-);
-const MembershipPage = lazy(() =>
-  import('@/pages/public/MembershipPage').then((m) => ({
-    default: m.MembershipPage,
-  })),
-);
-const CompetitionsPage = lazy(() =>
-  import('@/pages/public/CompetitionsPage').then((m) => ({
-    default: m.CompetitionsPage,
-  })),
-);
-const LeaderboardPage = lazy(() =>
-  import('@/pages/public/LeaderboardPage').then((m) => ({
-    default: m.LeaderboardPage,
-  })),
-);
-const MarketplacePage = lazy(() =>
-  import('@/pages/public/MarketplacePage').then((m) => ({
-    default: m.MarketplacePage,
-  })),
-);
-const ContactPage = lazy(() =>
-  import('@/pages/public/ContactPage').then((m) => ({
-    default: m.ContactPage,
-  })),
-);
-const NotFoundPage = lazy(() =>
-  import('@/pages/public/NotFoundPage').then((m) => ({
-    default: m.NotFoundPage,
-  })),
-);
-
-// Authentication & password recovery pages
-const LoginPage = lazy(() =>
-  import('@/pages/public/LoginPage').then((m) => ({ default: m.LoginPage })),
-);
-const RegisterPage = lazy(() =>
-  import('@/pages/public/RegisterPage').then((m) => ({
-    default: m.RegisterPage,
-  })),
-);
-const UpdatePasswordPage = lazy(() =>
-  import('@/pages/public/UpdatePasswordPage').then((m) => ({
-    default: m.UpdatePasswordPage,
-  })),
-);
-const MembershipStatusPage = lazy(() =>
-  import('@/pages/public/MembershipStatusPage').then((m) => ({
-    default: m.MembershipStatusPage,
-  })),
-);
-
-// Member Portal pages
-const MemberOverviewPage = lazy(() =>
-  import('@/pages/member/MemberOverviewPage').then((m) => ({
-    default: m.MemberOverviewPage,
-  })),
-);
-const MemberProfilePage = lazy(() =>
-  import('@/pages/member/MemberProfilePage').then((m) => ({
-    default: m.MemberProfilePage,
-  })),
-);
-const MemberMembershipPage = lazy(() =>
-  import('@/pages/member/MemberMembershipPage').then((m) => ({
-    default: m.MemberMembershipPage,
-  })),
-);
-const MemberAnnouncementsPage = lazy(() =>
-  import('@/pages/member/MemberAnnouncementsPage').then((m) => ({
-    default: m.MemberAnnouncementsPage,
-  })),
-);
-const MemberActivityPage = lazy(() =>
-  import('@/pages/member/MemberActivityPage').then((m) => ({
-    default: m.MemberActivityPage,
-  })),
-);
-const MemberCompetitionsPage = lazy(() =>
-  import('@/pages/member/MemberCompetitionsPage').then((m) => ({
-    default: m.MemberCompetitionsPage,
-  })),
-);
-const MemberCompetitionDetailPage = lazy(() =>
-  import('@/pages/member/MemberCompetitionDetailPage').then((m) => ({
-    default: m.MemberCompetitionDetailPage,
-  })),
-);
-const MemberLeaderboardPage = lazy(() =>
-  import('@/pages/member/MemberLeaderboardPage').then((m) => ({
-    default: m.MemberLeaderboardPage,
-  })),
-);
-const MemberAchievementsPage = lazy(() =>
-  import('@/pages/member/MemberAchievementsPage').then((m) => ({
-    default: m.MemberAchievementsPage,
-  })),
-);
-const MemberMarketplacePage = lazy(() =>
-  import('@/pages/member/MemberMarketplacePage').then((m) => ({
-    default: m.MemberMarketplacePage,
-  })),
-);
-const MemberOrdersPage = lazy(() =>
-  import('@/pages/member/MemberOrdersPage').then((m) => ({
-    default: m.MemberOrdersPage,
-  })),
-);
-const MemberTreasuryPage = lazy(() =>
-  import('@/pages/member/MemberTreasuryPage').then((m) => ({
-    default: m.MemberTreasuryPage,
-  })),
-);
-
-// Admin Control Center pages
-const AdminOverviewPage = lazy(() =>
-  import('@/pages/admin/AdminOverviewPage').then((m) => ({
-    default: m.AdminOverviewPage,
-  })),
-);
-const AdminMembersPage = lazy(() =>
-  import('@/pages/admin/AdminMembersPage').then((m) => ({
-    default: m.AdminMembersPage,
-  })),
-);
-const AdminCompetitionsPage = lazy(() =>
-  import('@/pages/admin/AdminCompetitionsPage').then((m) => ({
-    default: m.AdminCompetitionsPage,
-  })),
-);
-const AdminLeaderboardPage = lazy(() =>
-  import('@/pages/admin/AdminLeaderboardPage').then((m) => ({
-    default: m.AdminLeaderboardPage,
-  })),
-);
-const AdminMarketplacePage = lazy(() =>
-  import('@/pages/admin/AdminMarketplacePage').then((m) => ({
-    default: m.AdminMarketplacePage,
-  })),
-);
-const AdminAnnouncementsPage = lazy(() =>
-  import('@/pages/admin/AdminAnnouncementsPage').then((m) => ({
-    default: m.AdminAnnouncementsPage,
-  })),
-);
-
-function withSuspense(Component: ComponentType): ReactElement {
-  return (
-    <Suspense fallback={<PageLoadingFallback />}>
-      <Component />
-    </Suspense>
-  );
-}
 
 const MEMBER_NAV_ITEMS: readonly NavItem[] = [
   { label: 'Overview', to: ROUTES.dashboard },
@@ -183,6 +52,7 @@ const MEMBER_NAV_ITEMS: readonly NavItem[] = [
   { label: 'Leaderboard', to: ROUTES.dashboardLeaderboard },
   { label: 'Achievements', to: ROUTES.dashboardAchievements },
   { label: 'Marketplace', to: ROUTES.dashboardMarketplace },
+  { label: 'Vendors', to: ROUTES.dashboardVendors },
   { label: 'My Orders', to: ROUTES.dashboardMarketplaceOrders },
   { label: 'Treasury', to: ROUTES.dashboardTreasury },
 ];
@@ -204,13 +74,13 @@ export const router = createBrowserRouter([
       {
         element: <PublicLayout />,
         children: [
-          { path: ROUTES.home, element: withSuspense(HomePage) },
-          { path: ROUTES.about, element: withSuspense(AboutPage) },
-          { path: ROUTES.membership, element: withSuspense(MembershipPage) },
-          { path: ROUTES.competitions, element: withSuspense(CompetitionsPage) },
-          { path: ROUTES.leaderboard, element: withSuspense(LeaderboardPage) },
-          { path: ROUTES.marketplace, element: withSuspense(MarketplacePage) },
-          { path: ROUTES.contact, element: withSuspense(ContactPage) },
+          { path: ROUTES.home, element: <HomePage /> },
+          { path: ROUTES.about, element: <AboutPage /> },
+          { path: ROUTES.membership, element: <MembershipPage /> },
+          { path: ROUTES.competitions, element: <CompetitionsPage /> },
+          { path: ROUTES.leaderboard, element: <LeaderboardPage /> },
+          { path: ROUTES.marketplace, element: <MarketplacePage /> },
+          { path: ROUTES.contact, element: <ContactPage /> },
         ],
       },
 
@@ -218,15 +88,15 @@ export const router = createBrowserRouter([
       {
         element: <RedirectIfAuthenticated />,
         children: [
-          { path: ROUTES.login, element: withSuspense(LoginPage) },
-          { path: ROUTES.register, element: withSuspense(RegisterPage) },
+          { path: ROUTES.login, element: <LoginPage /> },
+          { path: ROUTES.register, element: <RegisterPage /> },
         ],
       },
 
       // Password recovery completion route
       {
         path: ROUTES.updatePassword,
-        element: withSuspense(UpdatePasswordPage),
+        element: <UpdatePasswordPage />,
       },
 
       // Authenticated membership status page (accessible to pending/approved/rejected/suspended users)
@@ -235,7 +105,7 @@ export const router = createBrowserRouter([
         children: [
           {
             path: ROUTES.membershipStatus,
-            element: withSuspense(MembershipStatusPage),
+            element: <MembershipStatusPage />,
           },
         ],
       },
@@ -247,18 +117,20 @@ export const router = createBrowserRouter([
           {
             element: <PortalLayout sectionLabel="Member Portal" navItems={MEMBER_NAV_ITEMS} />,
             children: [
-              { path: ROUTES.dashboard, element: withSuspense(MemberOverviewPage) },
-              { path: ROUTES.dashboardProfile, element: withSuspense(MemberProfilePage) },
-              { path: ROUTES.dashboardMembership, element: withSuspense(MemberMembershipPage) },
-              { path: ROUTES.dashboardAnnouncements, element: withSuspense(MemberAnnouncementsPage) },
-              { path: ROUTES.dashboardActivity, element: withSuspense(MemberActivityPage) },
-              { path: ROUTES.dashboardCompetitions, element: withSuspense(MemberCompetitionsPage) },
-              { path: ROUTES.dashboardCompetitionDetail, element: withSuspense(MemberCompetitionDetailPage) },
-              { path: ROUTES.dashboardLeaderboard, element: withSuspense(MemberLeaderboardPage) },
-              { path: ROUTES.dashboardAchievements, element: withSuspense(MemberAchievementsPage) },
-              { path: ROUTES.dashboardMarketplace, element: withSuspense(MemberMarketplacePage) },
-              { path: ROUTES.dashboardMarketplaceOrders, element: withSuspense(MemberOrdersPage) },
-              { path: ROUTES.dashboardTreasury, element: withSuspense(MemberTreasuryPage) },
+              { path: ROUTES.dashboard, element: <MemberOverviewPage /> },
+              { path: ROUTES.dashboardProfile, element: <MemberProfilePage /> },
+              { path: ROUTES.dashboardMembership, element: <MemberMembershipPage /> },
+              { path: ROUTES.dashboardAnnouncements, element: <MemberAnnouncementsPage /> },
+              { path: ROUTES.dashboardActivity, element: <MemberActivityPage /> },
+              { path: ROUTES.dashboardCompetitions, element: <MemberCompetitionsPage /> },
+              { path: ROUTES.dashboardCompetitionDetail, element: <MemberCompetitionDetailPage /> },
+              { path: ROUTES.dashboardLeaderboard, element: <MemberLeaderboardPage /> },
+              { path: ROUTES.dashboardAchievements, element: <MemberAchievementsPage /> },
+              { path: ROUTES.dashboardMarketplace, element: <MemberMarketplacePage /> },
+              { path: ROUTES.dashboardVendors, element: <MemberVendorsPage /> },
+              { path: ROUTES.dashboardVendorStore, element: <MemberVendorsPage /> },
+              { path: ROUTES.dashboardMarketplaceOrders, element: <MemberOrdersPage /> },
+              { path: ROUTES.dashboardTreasury, element: <MemberTreasuryPage /> },
             ],
           },
         ],
@@ -271,12 +143,12 @@ export const router = createBrowserRouter([
           {
             element: <PortalLayout sectionLabel="Administration" navItems={ADMIN_NAV_ITEMS} />,
             children: [
-              { path: ROUTES.admin, element: withSuspense(AdminOverviewPage) },
-              { path: ROUTES.adminMembers, element: withSuspense(AdminMembersPage) },
-              { path: ROUTES.adminCompetitions, element: withSuspense(AdminCompetitionsPage) },
-              { path: ROUTES.adminLeaderboard, element: withSuspense(AdminLeaderboardPage) },
-              { path: ROUTES.adminMarketplace, element: withSuspense(AdminMarketplacePage) },
-              { path: ROUTES.adminAnnouncements, element: withSuspense(AdminAnnouncementsPage) },
+              { path: ROUTES.admin, element: <AdminOverviewPage /> },
+              { path: ROUTES.adminMembers, element: <AdminMembersPage /> },
+              { path: ROUTES.adminCompetitions, element: <AdminCompetitionsPage /> },
+              { path: ROUTES.adminLeaderboard, element: <AdminLeaderboardPage /> },
+              { path: ROUTES.adminMarketplace, element: <AdminMarketplacePage /> },
+              { path: ROUTES.adminAnnouncements, element: <AdminAnnouncementsPage /> },
             ],
           },
         ],
@@ -284,7 +156,7 @@ export const router = createBrowserRouter([
 
       {
         path: '*',
-        element: withSuspense(NotFoundPage),
+        element: <NotFoundPage />,
       },
     ],
   },

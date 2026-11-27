@@ -25,6 +25,8 @@ export const ROUTES = {
   dashboardLeaderboard: '/dashboard/leaderboard',
   dashboardAchievements: '/dashboard/achievements',
   dashboardMarketplace: '/dashboard/marketplace',
+  dashboardVendors: '/dashboard/vendors',
+  dashboardVendorStore: '/dashboard/vendors/:slug',
   dashboardMarketplaceOrders: '/dashboard/marketplace/orders',
   dashboardTreasury: '/dashboard/treasury',
 

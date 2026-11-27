@@ -7,6 +7,7 @@ import {
   ClipboardList,
   Clock,
   Loader2,
+  MessageSquare,
   Receipt,
   RefreshCw,
   Send,
@@ -20,6 +21,10 @@ import {
   type TransferReceiptData,
 } from '@/components/shared/TransferReceiptModal';
 import { Button } from '@/components/ui/Button';
+import {
+  OrderChatModal,
+  type OrderChatContext,
+} from '@/features/vendors/components/OrderChatModal';
 import { OrderStatusBadge } from '@/features/marketplace/components/MarketplaceBadges';
 import { MarketplaceSafetyBanner } from '@/features/marketplace/components/MarketplaceSafetyBanner';
 import {
@@ -68,6 +73,7 @@ export function MemberOrdersPage() {
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [activeReceipt, setActiveReceipt] = useState<TransferReceiptData | null>(null);
+  const [activeChat, setActiveChat] = useState<OrderChatContext | null>(null);
 
   // Expanded order timeline
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
@@ -411,6 +417,23 @@ export function MemberOrdersPage() {
 
                     {/* Role-Gated Action Buttons */}
                     <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() =>
+                          setActiveChat({
+                            orderId: order.id,
+                            orderTitle: order.listing_title,
+                            counterpartyLabel: isBuyer
+                              ? `Vendor @${order.seller_username}`
+                              : `Buyer @${order.buyer_username}`,
+                            agreedPriceLabel: `${order.agreed_price_currency} ${order.agreed_price_amount.toLocaleString()}`,
+                          })
+                        }
+                      >
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        Chat
+                      </Button>
                       <Button
                         variant="secondary"
                         size="sm"
@@ -829,6 +852,7 @@ export function MemberOrdersPage() {
         receipt={activeReceipt}
         onClose={() => setActiveReceipt(null)}
       />
+      <OrderChatModal chat={activeChat} onClose={() => setActiveChat(null)} />
     </div>
   );
 }

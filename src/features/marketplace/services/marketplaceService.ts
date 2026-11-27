@@ -103,19 +103,22 @@ export async function createPurchaseRequest(input: {
   requestedGameCurrencyAmount: number | null;
   recipientLagosLifeUsername: string;
   buyerNote: string;
-}): Promise<{ error: string | null }> {
+}): Promise<{ order: MarketplaceOrderRecord | null; error: string | null }> {
   if (!supabase) {
-    return { error: supabaseConfig.errorMessage ?? 'Supabase client is not configured.' };
+    return {
+      order: null,
+      error: supabaseConfig.errorMessage ?? 'Supabase client is not configured.',
+    };
   }
 
-  const { error } = await supabase.rpc('create_marketplace_order', {
+  const { data, error } = await supabase.rpc('create_marketplace_order', {
     p_listing_id: input.listingId,
     p_requested_game_currency_amount: input.requestedGameCurrencyAmount,
     p_recipient_lagos_life_username: input.recipientLagosLifeUsername.trim() || null,
     p_buyer_note: input.buyerNote.trim() || null,
   });
 
-  return { error: error?.message ?? null };
+  return { order: data ?? null, error: error?.message ?? null };
 }
 
 export async function fetchMyOrders(): Promise<{
