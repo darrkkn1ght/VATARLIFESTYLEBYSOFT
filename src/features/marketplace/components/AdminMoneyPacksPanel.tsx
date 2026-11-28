@@ -37,14 +37,18 @@ import {
 } from '@/features/marketplace/services/moneyPackService';
 import {
   dispatchOrderAcrossSenders,
+  loadDispatchMode,
   loadStoredSenders,
   planPipelineSplit,
   refreshAllLiveSenders,
   removeStoredSender,
+  saveDispatchMode,
   saveStoredSenders,
+  updateStoredSenderPin,
   upsertStoredSender,
   type LiveSenderAccount,
   type PipelineDispatchItem,
+  type SenderDispatchMode,
 } from '@/features/marketplace/services/multiSenderService';
 import {
   formatNaira,
@@ -130,16 +134,25 @@ export function AdminMoneyPacksPanel() {
   const [twoFactorCode, setTwoFactorCode] = useState('');
 
   // Order dispatch tracking
+  const [dispatchMode, setDispatchMode] = useState<SenderDispatchMode>(() =>
+    loadDispatchMode(),
+  );
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
   const [confirmOrder, setConfirmOrder] = useState<AdminMoneyPackOrderView | null>(null);
   const [orderDescription, setOrderDescription] = useState('');
   const [stoppingJobId, setStoppingJobId] = useState<string | null>(null);
+  const [reroutingJobId, setReroutingJobId] = useState<string | null>(null);
   const [showPipelineJobs, setShowPipelineJobs] = useState(false);
 
-  // Direct Admin Money Sender (with Description)
+  // Per-sender saved PIN inline editor
+  const [editingPinUser, setEditingPinUser] = useState<string | null>(null);
+  const [editingPinValue, setEditingPinValue] = useState('');
+
+  // Direct Admin Money Sender (with Description + Sender Choice)
   const [directTarget, setDirectTarget] = useState('');
   const [directAmount, setDirectAmount] = useState('');
   const [directDescription, setDirectDescription] = useState('');
+  const [directSenderChoice, setDirectSenderChoice] = useState<string>('auto_single');
   const [sendingDirect, setSendingDirect] = useState(false);
   const [activeReceipt, setActiveReceipt] = useState<TransferReceiptData | null>(null);
   const [dispatchesByOrder, setDispatchesByOrder] = useState<
@@ -226,22 +239,34 @@ export function AdminMoneyPacksPanel() {
     [senders],
   );
 
-  const hasActivePipelineJob = useMemo(
+  const hasRunningPipelineJob = useMemo(
     () =>
       allPipelineJobs.some(({ job }) =>
-        ['RUNNING', 'SCHEDULED', 'PAUSED'].includes(String(job.status || '').toUpperCase()),
+        ['RUNNING', 'SCHEDULED'].includes(String(job.status || '').toUpperCase()),
       ),
     [allPipelineJobs],
   );
 
-  // Auto-expand Live Pipeline Monitor whenever an active transfer starts
+  const pausedIncompleteJobs = useMemo(
+    () =>
+      allPipelineJobs.filter(
+        ({ job }) =>
+          String(job.status || '').toUpperCase() === 'PAUSED' &&
+          Number(job.remaining || 0) > 0,
+      ),
+    [allPipelineJobs],
+  );
+
+  const hasActivePipelineJob = hasRunningPipelineJob || pausedIncompleteJobs.length > 0;
+
+  // Auto-expand Live Pipeline Monitor whenever a transfer starts running
   useEffect(() => {
-    if (hasActivePipelineJob) {
+    if (hasRunningPipelineJob) {
       setShowPipelineJobs(true);
     }
-  }, [hasActivePipelineJob]);
+  }, [hasRunningPipelineJob]);
 
-  // Silently poll sender jobs every 3s ONLY while a transfer is actively running
+  // Silently poll sender jobs every 3s while running or paused
   useEffect(() => {
     if (!hasActivePipelineJob) return;
     let active = true;
@@ -255,6 +280,30 @@ export function AdminMoneyPacksPanel() {
       window.clearInterval(timer);
     };
   }, [hasActivePipelineJob]);
+
+  const handleChangeDispatchMode = (nextMode: SenderDispatchMode) => {
+    saveDispatchMode(nextMode);
+    setDispatchMode(nextMode);
+  };
+
+  const handleSaveSenderPin = (senderUser: string) => {
+    updateStoredSenderPin(senderUser, editingPinValue);
+    setSenders((prev) =>
+      prev.map((s) =>
+        s.user.toLowerCase() === senderUser.toLowerCase()
+          ? { ...s, defaultPin: editingPinValue.trim() || undefined }
+          : s,
+      ),
+    );
+    setEditingPinUser(null);
+    setEditingPinValue('');
+    setBanner({
+      type: 'success',
+      text: editingPinValue.trim()
+        ? `Saved default Transaction PIN for @${senderUser}.`
+        : `Cleared saved PIN for @${senderUser}.`,
+    });
+  };
 
   const handleStopJob = async (sender: LiveSenderAccount, job: TreasuryJob) => {
     setStoppingJobId(job.id);
@@ -275,14 +324,89 @@ export function AdminMoneyPacksPanel() {
     }
   };
 
+  const handleReroutePausedJob = async (
+    pausedSender: LiveSenderAccount,
+    job: TreasuryJob,
+  ) => {
+    const remainingAmt = Math.max(0, Number(job.remaining || 0));
+    if (remainingAmt <= 0) return;
+
+    const otherSenders = senders.filter(
+      (s) =>
+        s.enabled &&
+        s.online &&
+        s.money > 0 &&
+        s.user.toLowerCase() !== pausedSender.user.toLowerCase(),
+    );
+    if (otherSenders.length === 0) {
+      setBanner({
+        type: 'error',
+        text: `No other active sender account is online with balance to cover the remaining ${formatNaira(remainingAmt)}. Enter PIN/2FA for @${pausedSender.user} or connect another sender.`,
+      });
+      return;
+    }
+
+    const handleMatch = /@([A-Za-z0-9_.-]+)/.exec(job.targetLabel || '');
+    const targetRecipient = handleMatch ? handleMatch[1] : job.target || '';
+    if (!targetRecipient) {
+      setBanner({ type: 'error', text: 'Could not determine recipient for re-route.' });
+      return;
+    }
+
+    setReroutingJobId(job.id);
+    await stopTransferJob(pausedSender.token, job.id).catch(() => {});
+
+    const desc = getJobDescription(job) || 'Remaining balance delivery';
+    const { results, shortfall } = await dispatchOrderAcrossSenders(
+      otherSenders,
+      targetRecipient,
+      remainingAmt,
+      undefined,
+      desc,
+      { mode: 'sequential' },
+    );
+    setReroutingJobId(null);
+
+    if (shortfall > 0 || results.length === 0) {
+      setBanner({
+        type: 'error',
+        text: `Other connected sender(s) need ${formatNaira(shortfall)} more to cover ${formatNaira(remainingAmt)}.`,
+      });
+    } else if (results.every((r) => r.ok)) {
+      const viaLabel = results.map((r) => `@${r.senderUser}`).join(' + ');
+      setShowPipelineJobs(true);
+      setBanner({
+        type: 'success',
+        text: `Stopped paused leg on @${pausedSender.user} and re-routed remaining ${formatNaira(remainingAmt)} via ${viaLabel}!`,
+      });
+    } else {
+      setBanner({
+        type: 'error',
+        text: results.map((r) => r.error).filter(Boolean).join('; '),
+      });
+    }
+
+    const refreshed = await refreshAllLiveSenders();
+    setSenders(refreshed);
+  };
+
   const handleResumeLiveJobCode = async (sender: LiveSenderAccount, job: TreasuryJob) => {
     const key = `live:${sender.user}:${job.id}`;
     const code = (twoStepCodes[key] || '').trim();
     if (!code) return;
     const res = await submitTransferTwoStep(sender.token, job.id, code);
     if (res.ok) {
+      if (job.twoStepType === 'pin') {
+        updateStoredSenderPin(sender.user, code);
+      }
       setTwoStepCodes((prev) => ({ ...prev, [key]: '' }));
-      setBanner({ type: 'success', text: `Submitted PIN/2FA code for @${sender.user}.` });
+      setBanner({
+        type: 'success',
+        text:
+          job.twoStepType === 'pin'
+            ? `PIN verified and saved for @${sender.user} — resuming remaining ${formatNaira(job.remaining)}!`
+            : `2FA code verified for @${sender.user} — resuming remaining ${formatNaira(job.remaining)}!`,
+      });
       const refreshed = await refreshAllLiveSenders();
       setSenders(refreshed);
     } else {
@@ -465,14 +589,32 @@ export function AdminMoneyPacksPanel() {
       return;
     }
 
-    const { allocations, shortfall } = planPipelineSplit(senders, amt);
+    const splitOptions =
+      directSenderChoice === 'auto_split'
+        ? ({ mode: 'parallel' } as const)
+        : directSenderChoice === 'auto_single'
+          ? ({ mode: 'sequential' } as const)
+          : ({ mode: 'sequential', preferredSenderUser: directSenderChoice } as const);
+
+    const candidatePool =
+      directSenderChoice !== 'auto_split' && directSenderChoice !== 'auto_single'
+        ? senders.filter(
+            (s) => s.user.toLowerCase() === directSenderChoice.toLowerCase(),
+          )
+        : senders;
+
+    const { allocations, shortfall } = planPipelineSplit(
+      candidatePool,
+      amt,
+      splitOptions,
+    );
     if (allocations.length === 0 || shortfall > 0) {
       setBanner({
         type: 'error',
         text:
           activeSenders.length === 0
             ? 'Connect at least 1 LagosLife sender account above first.'
-            : `Connected sender accounts need ${formatNaira(shortfall)} more to send ${formatNaira(amt)}.`,
+            : `Selected sender account(s) need ${formatNaira(shortfall)} more to send ${formatNaira(amt)}.`,
       });
       return;
     }
@@ -480,23 +622,27 @@ export function AdminMoneyPacksPanel() {
     setSendingDirect(true);
     setBanner(null);
     const { results } = await dispatchOrderAcrossSenders(
-      senders,
+      candidatePool,
       cleanTarget,
       amt,
       undefined,
       cleanDesc,
+      splitOptions,
     );
     setSendingDirect(false);
 
     const allOk = results.length > 0 && results.every((r) => r.ok);
     if (allOk) {
+      const planStr = results
+        .map((r) => `@${r.senderUser} (${formatNaira(r.amount)})`)
+        .join(' + ');
       setDirectTarget('');
       setDirectAmount('');
       setDirectDescription('');
       setShowPipelineJobs(true);
       setBanner({
         type: 'success',
-        text: `Sending ${formatNaira(amt)} to @${cleanTarget} — "${cleanDesc}"!`,
+        text: `Sending 100% of ${formatNaira(amt)} to @${cleanTarget} via ${planStr} — "${cleanDesc}"!`,
       });
     } else {
       const failedMsg = results
@@ -518,7 +664,9 @@ export function AdminMoneyPacksPanel() {
       orderDescription.trim() ||
       `VATAR Official Currency — ${order.order_code} (${order.pack_label})`;
 
-    const { allocations, shortfall } = planPipelineSplit(senders, order.in_game_amount);
+    const { allocations, shortfall } = planPipelineSplit(senders, order.in_game_amount, {
+      mode: dispatchMode,
+    });
     if (allocations.length === 0 || shortfall > 0) {
       setBusyOrderId(null);
       setBanner({
@@ -544,13 +692,14 @@ export function AdminMoneyPacksPanel() {
       return;
     }
 
-    // 2. Fire transfers in parallel across the multi-pipeline accounts
+    // 2. Fire transfers across the selected mode (100% single account by default)
     const { results } = await dispatchOrderAcrossSenders(
       senders,
       order.lagos_life_username,
       order.in_game_amount,
       undefined,
       cleanOrderDesc,
+      { mode: dispatchMode },
     );
 
     setDispatchesByOrder((prev) => ({ ...prev, [order.id]: results }));
@@ -731,20 +880,155 @@ export function AdminMoneyPacksPanel() {
         </div>
       )}
 
+      {/* UNMISSABLE ALERT WHENEVER ANY TRANSFER LEG PAUSES MID-WAY */}
+      {pausedIncompleteJobs.length > 0 && (
+        <section className="space-y-3 border-2 border-amber-400/80 bg-amber-950/35 p-4 sm:p-5">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-400" />
+            <div>
+              <h3 className="font-heading text-xs font-semibold tracking-[0.16em] text-amber-300 uppercase">
+                Action Required — {pausedIncompleteJobs.length} Paused Transfer Leg(s) Found!
+              </h3>
+              <p className="mt-1 font-body text-xs text-brand-cream">
+                No money was cut or lost — the remaining amount below has{' '}
+                <strong>NOT been deducted</strong> from the paused sender account yet. Enter
+                PIN/2FA to finish sending, or click{' '}
+                <strong>Send Remaining via Other Account</strong>.
+              </p>
+            </div>
+          </div>
+
+          {pausedIncompleteJobs.map(({ sender, job }) => {
+            const total = Number(job.total || 0);
+            const remaining = Math.max(0, Number(job.remaining || 0));
+            const sent = Math.max(0, total - remaining);
+            const lastLog = (job.logs || [])[Math.max(0, (job.logs || []).length - 1)] || '';
+            const codeKey = `live:${sender.user}:${job.id}`;
+            const recipientDisp = (job.targetLabel || job.target || 'recipient').replace(/^@/, '');
+
+            return (
+              <div
+                key={`paused:${sender.user}:${job.id}`}
+                className="space-y-2.5 border border-amber-400/40 bg-brand-black/90 p-3.5 text-xs"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="font-heading tracking-[0.12em] text-brand-white">
+                      @{sender.user} &rarr; <span className="text-brand-gold">@{recipientDisp}</span>
+                    </span>
+                    <p className="mt-0.5 text-brand-muted">
+                      Delivered <strong className="text-emerald-300">{formatNaira(sent)}</strong> of{' '}
+                      <strong className="text-brand-white">{formatNaira(total)}</strong> &bull;{' '}
+                      <strong className="text-amber-300">
+                        {formatNaira(remaining)} still waiting in @{sender.user}
+                      </strong>
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {activeSenders.some(
+                      (s) => s.user.toLowerCase() !== sender.user.toLowerCase(),
+                    ) && (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        disabled={reroutingJobId === job.id}
+                        onClick={() => void handleReroutePausedJob(sender, job)}
+                      >
+                        <Send className="h-3.5 w-3.5" />
+                        {reroutingJobId === job.id
+                          ? 'Re-routing...'
+                          : `Send Remaining ${formatNaira(remaining)} via Other Account`}
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={stoppingJobId === job.id}
+                      onClick={() => void handleStopJob(sender, job)}
+                    >
+                      Cancel Leg
+                    </Button>
+                  </div>
+                </div>
+
+                {lastLog && (
+                  <p className="font-mono text-[11px] text-amber-200/90">{lastLog}</p>
+                )}
+
+                {job.needsTwoStep && (
+                  <div className="flex flex-wrap items-center gap-2 border-t hairline-border pt-2.5">
+                    <KeyRound className="h-3.5 w-3.5 text-brand-gold" />
+                    <span className="text-brand-cream">
+                      Enter {job.twoStepType === 'pin' ? '4-digit PIN' : '6-digit 2FA'} for @
+                      {sender.user}:
+                    </span>
+                    <input
+                      type="text"
+                      value={twoStepCodes[codeKey] || ''}
+                      onChange={(e) =>
+                        setTwoStepCodes((prev) => ({ ...prev, [codeKey]: e.target.value }))
+                      }
+                      placeholder={job.twoStepType === 'pin' ? 'PIN (auto-saves)' : '6-digit 2FA'}
+                      className="border hairline-border bg-brand-charcoal px-2.5 py-1 text-xs text-brand-white focus:border-brand-gold focus:outline-none"
+                    />
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => void handleResumeLiveJobCode(sender, job)}
+                    >
+                      Verify &amp; Deliver Remaining {formatNaira(remaining)}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </section>
+      )}
+
       {/* 1. MULTI-PIPELINE SENDER ACCOUNTS BAR */}
       <section className="border border-brand-gold/35 bg-brand-charcoal/70 p-5 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="heading-eyebrow flex items-center gap-1.5">
               <Zap className="h-3.5 w-3.5 text-brand-gold" />
-              Multi-Pipeline Senders
+              Multi-Pipeline Senders (0% Fee &bull; 100% Full Delivery)
             </p>
             <p className="mt-1 font-body text-xs text-brand-muted">
-              Connect 1 or more LagosLife accounts. Orders auto-split across all enabled accounts for faster sends.
+              Default mode sends <strong>100% from 1 primary account</strong> so a 2nd account never pauses half the order.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center border hairline-border bg-brand-black p-0.5">
+              <button
+                type="button"
+                onClick={() => handleChangeDispatchMode('sequential')}
+                className={cn(
+                  'cursor-pointer px-2.5 py-1 font-heading text-[10px] tracking-[0.12em] uppercase',
+                  dispatchMode === 'sequential'
+                    ? 'bg-brand-gold font-semibold text-brand-black'
+                    : 'text-brand-muted hover:text-brand-white',
+                )}
+                title="Sends 100% from 1 account first (only uses a 2nd account if 1 account doesn't have enough balance)"
+              >
+                1 Account (100%)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleChangeDispatchMode('parallel')}
+                className={cn(
+                  'cursor-pointer px-2.5 py-1 font-heading text-[10px] tracking-[0.12em] uppercase',
+                  dispatchMode === 'parallel'
+                    ? 'bg-brand-gold font-semibold text-brand-black'
+                    : 'text-brand-muted hover:text-brand-white',
+                )}
+                title="Splits evenly across all active accounts (make sure every enabled account has its PIN saved!)"
+              >
+                Split All
+              </button>
+            </div>
             <span className="border hairline-border bg-brand-black px-3 py-1.5 font-heading text-xs tracking-[0.14em] text-brand-gold">
               {activeSenders.length} Active &bull; {formatNaira(totalAvailableBalance)} Ready
             </span>
@@ -795,10 +1079,53 @@ export function AdminMoneyPacksPanel() {
                   </div>
                   <p className="mt-0.5 font-body text-xs text-brand-gold">
                     {sender.online ? formatNaira(sender.money) : 'Session expired'}
+                    {sender.defaultPin ? (
+                      <span className="ml-2 font-mono text-[10px] text-emerald-400">
+                        • PIN Saved
+                      </span>
+                    ) : (
+                      <span className="ml-2 font-mono text-[10px] text-amber-300">
+                        • No PIN saved
+                      </span>
+                    )}
                   </p>
+                  {editingPinUser === sender.user && (
+                    <div className="mt-2 flex items-center gap-1.5">
+                      <input
+                        type="password"
+                        maxLength={8}
+                        value={editingPinValue}
+                        onChange={(e) => setEditingPinValue(e.target.value)}
+                        placeholder="4-digit PIN"
+                        className="w-24 border hairline-border bg-brand-charcoal px-2 py-1 font-mono text-xs text-brand-white focus:border-brand-gold focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSaveSenderPin(sender.user)}
+                        className="cursor-pointer border border-brand-gold bg-brand-gold px-2 py-1 font-heading text-[10px] font-semibold text-brand-black uppercase"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (editingPinUser === sender.user) {
+                        setEditingPinUser(null);
+                      } else {
+                        setEditingPinUser(sender.user);
+                        setEditingPinValue(sender.defaultPin || '');
+                      }
+                    }}
+                    className="cursor-pointer border hairline-border px-2 py-1 font-heading text-[0.6rem] tracking-[0.12em] text-brand-cream uppercase hover:border-brand-gold hover:text-brand-gold"
+                    title="Save default Transaction PIN for this account"
+                  >
+                    PIN
+                  </button>
                   <button
                     type="button"
                     onClick={() => handleToggleSender(sender.user)}
@@ -949,9 +1276,29 @@ export function AdminMoneyPacksPanel() {
             onSubmit={(e) => void handleDirectAdminSend(e)}
             className="mt-5 space-y-3 border-t hairline-border pt-5"
           >
-            <p className="font-heading text-xs font-semibold tracking-[0.16em] text-brand-gold uppercase">
-              Direct Admin Money Sender (With Description)
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-heading text-xs font-semibold tracking-[0.16em] text-brand-gold uppercase">
+                Direct Admin Money Sender (100% Full Delivery &bull; 0% Cut)
+              </p>
+              <select
+                aria-label="Sender account selection"
+                value={directSenderChoice}
+                onChange={(e) => setDirectSenderChoice(e.target.value)}
+                className="border hairline-border bg-brand-black px-2.5 py-1 font-mono text-xs text-brand-gold focus:border-brand-gold focus:outline-none"
+              >
+                <option value="auto_single">Send 100% From 1 Primary Account (Recommended)</option>
+                {activeSenders.map((s) => (
+                  <option key={s.user} value={s.user}>
+                    Only @{s.user} ({formatNaira(s.money)})
+                  </option>
+                ))}
+                {activeSenders.length > 1 && (
+                  <option value="auto_split">
+                    Split Across All {activeSenders.length} Active Accounts
+                  </option>
+                )}
+              </select>
+            </div>
             <div className="grid gap-3 sm:grid-cols-12">
               <div className="sm:col-span-3">
                 <label className="block font-heading text-[10px] tracking-[0.14em] text-brand-muted uppercase">
@@ -1307,7 +1654,7 @@ export function AdminMoneyPacksPanel() {
                 order.status === 'sending';
               const dispatches = dispatchesByOrder[order.id] ?? [];
               const splitPreview = isActionable
-                ? planPipelineSplit(senders, order.in_game_amount)
+                ? planPipelineSplit(senders, order.in_game_amount, { mode: dispatchMode })
                 : null;
 
               return (
