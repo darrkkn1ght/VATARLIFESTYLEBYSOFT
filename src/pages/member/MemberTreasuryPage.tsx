@@ -114,8 +114,8 @@ export function MemberTreasuryPage() {
     text: string;
   } | null>(null);
 
-  // Auth form state
-  const [authTab, setAuthTab] = useState<'login' | 'cookie'>('login');
+  // Auth form state — default to Session Token (no password needed!)
+  const [authTab, setAuthTab] = useState<'login' | 'cookie'>('cookie');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [cookieInput, setCookieInput] = useState('');
@@ -653,26 +653,21 @@ export function MemberTreasuryPage() {
             </div>
             <div>
               <h2 className="font-heading text-lg font-semibold tracking-[0.06em] text-brand-white uppercase">
-                Connect LagosLife Account
+                Connect Transfer Session
               </h2>
               <p className="font-body text-xs text-brand-muted">
-                Sessions live strictly in ephemeral memory. Sign out anytime to wipe.
+                Sessions live strictly in ephemeral memory. Disconnect anytime to wipe immediately.
               </p>
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-2 border hairline-border bg-brand-black p-1">
-            <button
-              type="button"
-              onClick={() => setAuthTab('login')}
-              className={`cursor-pointer py-2 font-body text-xs tracking-[0.16em] uppercase transition-colors ${
-                authTab === 'login'
-                  ? 'bg-brand-gold text-brand-black font-semibold'
-                  : 'text-brand-muted hover:text-brand-white'
-              }`}
-            >
-              Credentials
-            </button>
+          <div className="mt-4 border border-brand-gold/40 bg-brand-black/80 px-3.5 py-2.5 font-body text-xs leading-relaxed text-brand-cream/90">
+            <strong className="text-brand-gold">Recommended &amp; Safest:</strong> Connect
+            using your <strong>Session Token</strong> below so you never have to type your
+            in-game password on any external site.
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 border hairline-border bg-brand-black p-1">
             <button
               type="button"
               onClick={() => setAuthTab('cookie')}
@@ -682,46 +677,62 @@ export function MemberTreasuryPage() {
                   : 'text-brand-muted hover:text-brand-white'
               }`}
             >
-              Session Token
+              Session Token (Safe)
+            </button>
+            <button
+              type="button"
+              onClick={() => setAuthTab('login')}
+              className={`cursor-pointer py-2 font-body text-xs tracking-[0.16em] uppercase transition-colors ${
+                authTab === 'login'
+                  ? 'bg-brand-gold text-brand-black font-semibold'
+                  : 'text-brand-muted hover:text-brand-white'
+              }`}
+            >
+              Direct Bridge
             </button>
           </div>
 
           {authTab === 'login' ? (
-            <form onSubmit={handleLogin} className="mt-6 space-y-4">
+            <form onSubmit={handleLogin} className="mt-6 space-y-4" autoComplete="off">
+              <p className="border border-amber-500/35 bg-amber-950/25 px-3 py-2 font-body text-[11px] text-amber-200">
+                Only use Direct Bridge on the official VATAR portal. For zero-password
+                access, switch to the <strong>Session Token (Safe)</strong> tab above.
+              </p>
               <div>
                 <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
-                  LagosLife Username
+                  Player Handle
                 </label>
                 <input
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="@username"
+                  placeholder="@handle"
                   autoComplete="off"
                   className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-body text-sm text-brand-white placeholder:text-brand-muted/60 focus:border-brand-gold focus:outline-none"
                 />
               </div>
               <div>
                 <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
-                  Password
+                  Access Key
                 </label>
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Password"
+                  placeholder="••••••••"
+                  autoComplete="new-password"
                   className="mt-1.5 w-full border hairline-border bg-brand-black px-3.5 py-2.5 font-body text-sm text-brand-white placeholder:text-brand-muted/60 focus:border-brand-gold focus:outline-none"
                 />
               </div>
               <Button type="submit" disabled={authLoading} className="w-full">
-                {authLoading ? 'Connecting...' : 'Connect & Authenticate'}
+                {authLoading ? 'Connecting...' : 'Open Ephemeral Bridge'}
               </Button>
             </form>
           ) : (
             <form onSubmit={handleImportCookie} className="mt-6 space-y-4">
               <div>
                 <label className="block font-body text-xs tracking-[0.14em] text-brand-muted uppercase">
-                  LagosLife Session Cookie
+                  Paste Session Token (No Password Needed)
                 </label>
                 <textarea
                   rows={3}
@@ -732,7 +743,7 @@ export function MemberTreasuryPage() {
                 />
               </div>
               <Button type="submit" disabled={authLoading} className="w-full">
-                {authLoading ? 'Importing...' : 'Import Session Token'}
+                {authLoading ? 'Importing...' : 'Connect With Session Token'}
               </Button>
             </form>
           )}

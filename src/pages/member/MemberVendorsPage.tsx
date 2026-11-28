@@ -5,38 +5,35 @@ import {
   ArrowRight,
   BadgeCheck,
   Check,
-  ClipboardList,
   Copy,
-  Edit3,
   Loader2,
+  MapPin,
   MessageSquare,
   Plus,
   RefreshCw,
-  ShoppingBag,
+  ShoppingCart,
   Store,
   X,
 } from 'lucide-react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { SearchInput } from '@/components/shared/SearchInput';
 import { Button } from '@/components/ui/Button';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { ListingFormModal } from '@/features/marketplace/components/ListingFormModal';
-import {
-  ListingAvailabilityBadge,
-  ListingModerationBadge,
-} from '@/features/marketplace/components/MarketplaceBadges';
+import { MarketplaceCartDrawer } from '@/features/marketplace/components/MarketplaceCartDrawer';
+import { SocialProductCard } from '@/features/marketplace/components/SocialProductCard';
 import {
   createListing,
   createPurchaseRequest,
   fetchMarketplaceListings,
-  formatGameFundsShort,
+  loadMarketplaceCart,
+  removeFromMarketplaceCart,
+  toggleMarketplaceCartItem,
   updateOwnListing,
+  type MarketplaceCartItem,
 } from '@/features/marketplace/services/marketplaceService';
-import {
-  MARKETPLACE_CATEGORY_LABELS,
-  type ListingFormValues,
-} from '@/features/marketplace/types/marketplace.types';
+import type { ListingFormValues } from '@/features/marketplace/types/marketplace.types';
 import {
   OrderChatModal,
   type OrderChatContext,
@@ -54,7 +51,8 @@ import { ROUTES } from '@/routes/paths';
 
 export function MemberVendorsPage() {
   const { slug } = useParams<{ slug?: string }>();
-  const { user, profile } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { user, profile, isAdmin } = useAuth();
 
   const [stores, setStores] = useState<VendorStoreDirectoryRow[]>([]);
   const [listings, setListings] = useState<MarketplaceListingWithSellerRow[]>([]);
@@ -64,10 +62,17 @@ export function MemberVendorsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedSlug, setCopiedSlug] = useState(false);
 
+  // Shopping Cart
+  const [cartItems, setCartItems] = useState<MarketplaceCartItem[]>(() =>
+    loadMarketplaceCart(),
+  );
+  const [cartOpen, setCartOpen] = useState(false);
+
   // Storefront Setup Modal
   const [storeModalOpen, setStoreModalOpen] = useState(false);
   const [storeName, setStoreName] = useState('');
   const [storeSlug, setStoreSlug] = useState('');
+  const [storeLocation, setStoreLocation] = useState('');
   const [tagline, setTagline] = useState('');
   const [description, setDescription] = useState('');
   const [bankName, setBankName] = useState('');
@@ -109,19 +114,46 @@ export function MemberVendorsPage() {
     void loadAll();
   }, [loadAll]);
 
+  useEffect(() => {
+    const syncCart = () => setCartItems(loadMarketplaceCart());
+    window.addEventListener('vatar:cart-updated', syncCart);
+    return () => window.removeEventListener('vatar:cart-updated', syncCart);
+  }, []);
+
+  // Auto-open Order modal when redirected via ?buy=<listingId>
+  useEffect(() => {
+    const buyId = searchParams.get('buy');
+    if (!buyId || listings.length === 0) return;
+    const found = listings.find((l) => l.id === buyId);
+    if (found && found.seller_id !== user?.id) {
+      setOrderingListing(found);
+      setRecipientHandle(profile?.lagos_life_username ?? '');
+      const next = new URLSearchParams(searchParams);
+      next.delete('buy');
+      setSearchParams(next, { replace: true });
+    }
+  }, [listings, profile?.lagos_life_username, searchParams, setSearchParams, user?.id]);
+
+  const cartIds = useMemo(
+    () => new Set(cartItems.map((i) => i.listingId)),
+    [cartItems],
+  );
+
   const myStore = useMemo(
     () => (user ? stores.find((s) => s.owner_id === user.id) ?? null : null),
     [stores, user],
   );
 
   const activeVendorStore = useMemo(
-    () => (slug ? stores.find((s) => s.slug.toLowerCase() === slug.toLowerCase()) ?? null : null),
+    () =>
+      slug ? stores.find((s) => s.slug.toLowerCase() === slug.toLowerCase()) ?? null : null,
     [slug, stores],
   );
 
   const openStoreModal = () => {
     setStoreName(myStore?.store_name || profile?.full_name || '');
     setStoreSlug(myStore?.slug || profile?.username || '');
+    setStoreLocation(myStore?.store_location || '');
     setTagline(myStore?.tagline || '');
     setDescription(myStore?.description || '');
     setBankName(myStore?.bank_name || '');
@@ -142,6 +174,7 @@ export function MemberVendorsPage() {
       bankName,
       accountNumber,
       accountName,
+      storeLocation,
     });
     setSavingStore(false);
     if (res.error) {
@@ -170,8 +203,10 @@ export function MemberVendorsPage() {
     setEditingListing(null);
     setFeedback(
       editingListing
-        ? 'Listing updated.'
-        : 'Listing submitted for admin approval — once approved it appears on your Vendor Page!',
+        ? 'Listing updated!'
+        : isAdmin
+          ? 'Your product is live immediately!'
+          : 'Product submitted — once approved by Admin it appears on your Vendor Page & the public Marketplace!',
     );
     await loadAll();
   };
@@ -202,18 +237,17 @@ export function MemberVendorsPage() {
     }
     setOrderingListing(null);
     setBuyerNote('');
-    // Immediately open direct In-Site Chat with the vendor!
     setActiveChat({
       orderId: res.order.id,
       orderTitle: targetListing.title,
       counterpartyLabel: `Vendor @${targetListing.seller_username}`,
-      agreedPriceLabel: `${targetListing.price_currency} ${targetListing.price_amount.toLocaleString()}`,
+      agreedPriceLabel: `${targetListing.price_currency} ${Number(targetListing.price_amount).toLocaleString()}`,
     });
   };
 
   const copyStoreUrl = async (targetSlug: string) => {
     try {
-      const url = `${window.location.origin}/dashboard/vendors/${targetSlug}`;
+      const url = `${window.location.origin}/marketplace?vendor=${targetSlug}`;
       await navigator.clipboard.writeText(url);
       setCopiedSlug(true);
       window.setTimeout(() => setCopiedSlug(false), 2000);
@@ -231,14 +265,10 @@ export function MemberVendorsPage() {
           !q ||
           s.store_name.toLowerCase().includes(q) ||
           s.owner_username.toLowerCase().includes(q) ||
-          s.tagline.toLowerCase().includes(q),
+          s.tagline.toLowerCase().includes(q) ||
+          (s.store_location || '').toLowerCase().includes(q),
       );
   }, [stores, searchQuery, user]);
-
-  const storeByOwnerId = useMemo(
-    () => new Map(stores.map((s) => [s.owner_id, s])),
-    [stores],
-  );
 
   const visibleListings = useMemo(() => {
     if (activeVendorStore) {
@@ -252,11 +282,12 @@ export function MemberVendorsPage() {
     const q = searchQuery.trim().toLowerCase();
     return listings.filter(
       (l) =>
-        l.moderation_status === 'approved' &&
-        l.status === 'available' &&
+        (l.seller_id === user?.id ||
+          (l.moderation_status === 'approved' && l.status === 'available')) &&
         (!q ||
           l.title.toLowerCase().includes(q) ||
-          l.seller_username.toLowerCase().includes(q)),
+          l.seller_username.toLowerCase().includes(q) ||
+          (l.location || '').toLowerCase().includes(q)),
     );
   }, [activeVendorStore, listings, searchQuery, user]);
 
@@ -277,7 +308,9 @@ export function MemberVendorsPage() {
                 </Link>
               ) : null}
               <h1 className="heading-display text-2xl text-brand-white sm:text-3xl">
-                {activeVendorStore ? activeVendorStore.store_name : 'Community Vendor Stores'}
+                {activeVendorStore
+                  ? activeVendorStore.store_name
+                  : 'Vendor Stores & Marketplace Hub'}
               </h1>
             </div>
 
@@ -285,6 +318,14 @@ export function MemberVendorsPage() {
               <Button variant="subtle" size="sm" onClick={() => void loadAll()}>
                 <RefreshCw className="h-3.5 w-3.5" />
                 Refresh
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setCartOpen(true)}
+              >
+                <ShoppingCart className="h-3.5 w-3.5 text-brand-gold" />
+                Cart ({cartItems.length})
               </Button>
               <Button
                 to={ROUTES.dashboardMarketplaceOrders}
@@ -308,7 +349,7 @@ export function MemberVendorsPage() {
                 }}
               >
                 <Plus className="h-3.5 w-3.5" />
-                Add Listing
+                Add Product / Listing
               </Button>
             </div>
           </div>
@@ -364,6 +405,12 @@ export function MemberVendorsPage() {
                         Verified Vendor
                       </span>
                     )}
+                    {activeVendorStore.store_location && (
+                      <span className="inline-flex items-center gap-1 border hairline-border bg-brand-black px-2 py-0.5 text-xs text-brand-cream">
+                        <MapPin className="h-3 w-3 text-brand-gold" />
+                        {activeVendorStore.store_location}
+                      </span>
+                    )}
                     <span className="font-mono text-xs text-brand-muted">
                       {activeVendorStore.completed_sales_count} completed sales
                     </span>
@@ -388,103 +435,53 @@ export function MemberVendorsPage() {
                   {copiedSlug ? (
                     <>
                       <Check className="h-3.5 w-3.5 text-emerald-400" />
-                      Store Link Copied!
+                      Public Store Link Copied!
                     </>
                   ) : (
                     <>
                       <Copy className="h-3.5 w-3.5 text-brand-gold" />
-                      Share Store Link
+                      Share Public Store Link
                     </>
                   )}
                 </Button>
               </div>
             </section>
 
-            {/* Vendor's Own Listings */}
+            {/* Vendor's Products */}
             <section className="space-y-4">
               <h2 className="font-heading text-sm font-semibold tracking-[0.18em] text-brand-cream uppercase">
-                Store Listings ({visibleListings.length})
+                Store Products &amp; Listings ({visibleListings.length})
               </h2>
 
               {visibleListings.length === 0 ? (
                 <p className="border hairline-border bg-brand-charcoal/40 p-6 text-xs text-brand-muted">
-                  This vendor has no active approved listings right now.
+                  This vendor has no active listings right now.
                 </p>
               ) : (
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {visibleListings.map((listing) => {
-                    const isMine = listing.seller_id === user?.id;
-                    return (
-                      <article
-                        key={listing.id}
-                        className="flex flex-col justify-between border hairline-border bg-brand-charcoal/65 p-5"
-                      >
-                        <div>
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="font-heading text-[10px] tracking-[0.16em] text-brand-gold uppercase">
-                              {MARKETPLACE_CATEGORY_LABELS[listing.category]}
-                            </span>
-                            {isMine ? (
-                              <ListingModerationBadge status={listing.moderation_status} />
-                            ) : (
-                              <ListingAvailabilityBadge status={listing.status} />
-                            )}
-                          </div>
-                          <h3 className="heading-section mt-2 text-lg text-brand-white">
-                            {listing.title}
-                          </h3>
-                          <p className="mt-1 font-heading text-xl font-semibold text-brand-gold">
-                            {listing.price_currency} {listing.price_amount.toLocaleString()}
-                            {listing.game_currency_amount ? (
-                              <span className="ml-2 font-mono text-xs text-brand-cream">
-                                • ₦{formatGameFundsShort(listing.game_currency_amount)} Funds
-                              </span>
-                            ) : null}
-                          </p>
-                          <p className="mt-2 line-clamp-3 font-body text-xs leading-relaxed text-brand-muted">
-                            {listing.description}
-                          </p>
-                        </div>
-
-                        <div className="mt-4 border-t hairline-border pt-3">
-                          {isMine ? (
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              className="w-full"
-                              onClick={() => {
-                                setEditingListing(listing);
-                                setListingError(null);
-                                setListingModalOpen(true);
-                              }}
-                            >
-                              <Edit3 className="h-3.5 w-3.5" />
-                              Edit Listing
-                            </Button>
-                          ) : (
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              className="w-full"
-                              onClick={() => {
-                                setOrderingListing(listing);
-                                setRecipientHandle(profile?.lagos_life_username ?? '');
-                              }}
-                            >
-                              <ShoppingBag className="h-3.5 w-3.5" />
-                              Order &amp; Chat Inside Site
-                            </Button>
-                          )}
-                        </div>
-                      </article>
-                    );
-                  })}
+                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                  {visibleListings.map((listing) => (
+                    <SocialProductCard
+                      key={listing.id}
+                      listing={listing}
+                      inCart={cartIds.has(listing.id)}
+                      onToggleCart={(item) => setCartItems(toggleMarketplaceCartItem(item).items)}
+                      onEditClick={(item) => {
+                        setEditingListing(item);
+                        setListingError(null);
+                        setListingModalOpen(true);
+                      }}
+                      onOrderClick={(item) => {
+                        setOrderingListing(item);
+                        setRecipientHandle(profile?.lagos_life_username ?? '');
+                      }}
+                    />
+                  ))}
                 </div>
               )}
             </section>
           </>
         ) : (
-          /* VENDOR DIRECTORY + ALL APPROVED VENDOR LISTINGS */
+          /* VENDOR DIRECTORY + ALL PRODUCTS */
           <>
             {myStore && (
               <div className="flex flex-wrap items-center justify-between gap-3 border border-brand-gold/45 bg-brand-gold/10 px-4 py-3 text-xs">
@@ -492,8 +489,11 @@ export function MemberVendorsPage() {
                   <span className="font-heading tracking-[0.16em] text-brand-gold uppercase">
                     Your Vendor Page: {myStore.store_name}
                   </span>
+                  {myStore.store_location ? (
+                    <span className="ml-2 text-brand-cream">• 📍 {myStore.store_location}</span>
+                  ) : null}
                   <span className="ml-2 text-brand-muted">
-                    ({myStore.active_listings_count} active listings &bull;{' '}
+                    ({myStore.active_listings_count} active &bull;{' '}
                     {myStore.completed_sales_count} sales)
                   </span>
                 </div>
@@ -511,7 +511,7 @@ export function MemberVendorsPage() {
                     size="sm"
                     onClick={() => void copyStoreUrl(myStore.slug)}
                   >
-                    {copiedSlug ? 'Copied!' : 'Copy Link'}
+                    {copiedSlug ? 'Copied!' : 'Copy Public Link'}
                   </Button>
                 </div>
               </div>
@@ -521,7 +521,7 @@ export function MemberVendorsPage() {
               <SearchInput
                 value={searchQuery}
                 onChange={setSearchQuery}
-                placeholder="Search vendor pages or listings..."
+                placeholder="Search vendor stores, products, or city..."
                 ariaLabel="Search vendors"
               />
             </div>
@@ -535,7 +535,7 @@ export function MemberVendorsPage() {
               {filteredStores.length === 0 ? (
                 <div className="border hairline-border bg-brand-charcoal/45 p-6 text-xs text-brand-muted">
                   No vendor pages created yet. Click <strong>Create Vendor Page</strong> above
-                  to launch your own storefront inside VATAR!
+                  to launch your own real-life or digital storefront inside VATAR!
                 </div>
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -560,6 +560,12 @@ export function MemberVendorsPage() {
                         <h3 className="heading-section mt-2 text-xl text-brand-white group-hover:text-brand-gold">
                           {store.store_name}
                         </h3>
+                        {store.store_location && (
+                          <p className="mt-1 flex items-center gap-1 text-xs text-brand-cream/85">
+                            <MapPin className="h-3 w-3 shrink-0 text-brand-gold" />
+                            {store.store_location}
+                          </p>
+                        )}
                         {store.tagline && (
                           <p className="mt-1 line-clamp-2 font-body text-xs text-brand-muted">
                             {store.tagline}
@@ -569,7 +575,7 @@ export function MemberVendorsPage() {
 
                       <div className="mt-4 flex items-center justify-between border-t hairline-border pt-3 text-[11px] text-brand-muted">
                         <span>
-                          {store.active_listings_count} listings &bull;{' '}
+                          {store.active_listings_count} products &bull;{' '}
                           {store.completed_sales_count} sales
                         </span>
                         <span className="inline-flex items-center gap-1 font-heading text-[10px] tracking-[0.16em] text-brand-gold uppercase">
@@ -583,81 +589,30 @@ export function MemberVendorsPage() {
               )}
             </section>
 
-            {/* All Approved Vendor Listings */}
+            {/* All Products & Listings */}
             {visibleListings.length > 0 && (
               <section className="space-y-3 pt-2">
                 <h2 className="font-heading text-xs font-semibold tracking-[0.18em] text-brand-cream uppercase">
-                  Latest Vendor Listings ({visibleListings.length})
+                  Products &amp; Services ({visibleListings.length})
                 </h2>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {visibleListings.slice(0, 12).map((listing) => {
-                    const vendorStore = storeByOwnerId.get(listing.seller_id);
-                    const isMine = listing.seller_id === user?.id;
-                    return (
-                      <article
-                        key={listing.id}
-                        className="flex flex-col justify-between border hairline-border bg-brand-charcoal/60 p-5"
-                      >
-                        <div>
-                          <div className="flex items-center justify-between gap-2 text-xs">
-                            {vendorStore ? (
-                              <Link
-                                to={`/dashboard/vendors/${vendorStore.slug}`}
-                                className="font-heading text-[11px] tracking-[0.12em] text-brand-gold hover:underline"
-                              >
-                                {vendorStore.store_name} (@{listing.seller_username})
-                              </Link>
-                            ) : (
-                              <span className="text-brand-gold">
-                                @{listing.seller_username}
-                              </span>
-                            )}
-                          </div>
-                          <h3 className="heading-section mt-2 text-lg text-brand-white">
-                            {listing.title}
-                          </h3>
-                          <p className="mt-1 font-heading text-lg font-semibold text-brand-gold">
-                            {listing.price_currency} {listing.price_amount.toLocaleString()}
-                            {listing.game_currency_amount ? (
-                              <span className="ml-2 font-mono text-xs text-brand-cream">
-                                • ₦{formatGameFundsShort(listing.game_currency_amount)} Funds
-                              </span>
-                            ) : null}
-                          </p>
-                          <p className="mt-1.5 line-clamp-2 font-body text-xs text-brand-muted">
-                            {listing.description}
-                          </p>
-                        </div>
-
-                        <div className="mt-4 border-t hairline-border pt-3">
-                          {isMine ? (
-                            <Button
-                              to={ROUTES.dashboardMarketplaceOrders}
-                              variant="secondary"
-                              size="sm"
-                              className="w-full"
-                            >
-                              <ClipboardList className="h-3.5 w-3.5" />
-                              View Incoming Orders
-                            </Button>
-                          ) : (
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              className="w-full"
-                              onClick={() => {
-                                setOrderingListing(listing);
-                                setRecipientHandle(profile?.lagos_life_username ?? '');
-                              }}
-                            >
-                              <MessageSquare className="h-3.5 w-3.5" />
-                              Order &amp; Chat Vendor
-                            </Button>
-                          )}
-                        </div>
-                      </article>
-                    );
-                  })}
+                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                  {visibleListings.map((listing) => (
+                    <SocialProductCard
+                      key={listing.id}
+                      listing={listing}
+                      inCart={cartIds.has(listing.id)}
+                      onToggleCart={(item) => setCartItems(toggleMarketplaceCartItem(item).items)}
+                      onEditClick={(item) => {
+                        setEditingListing(item);
+                        setListingError(null);
+                        setListingModalOpen(true);
+                      }}
+                      onOrderClick={(item) => {
+                        setOrderingListing(item);
+                        setRecipientHandle(profile?.lagos_life_username ?? '');
+                      }}
+                    />
+                  ))}
                 </div>
               </section>
             )}
@@ -672,10 +627,10 @@ export function MemberVendorsPage() {
           aria-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-xs"
         >
-          <div className="w-full max-w-lg border border-brand-gold/55 bg-brand-charcoal p-6">
+          <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto border border-brand-gold/55 bg-brand-charcoal p-6">
             <div className="flex items-center justify-between border-b hairline-border pb-3">
               <h2 className="heading-section text-xl text-brand-white">
-                {myStore ? 'Edit Your Vendor Page' : 'Create Your Vendor Page'}
+                {myStore ? 'Edit Your Vendor Store' : 'Create Your Vendor Store'}
               </h2>
               <button
                 type="button"
@@ -698,7 +653,7 @@ export function MemberVendorsPage() {
                     maxLength={60}
                     value={storeName}
                     onChange={(e) => setStoreName(e.target.value)}
-                    placeholder="e.g. Lagos Plug Exchange"
+                    placeholder="e.g. Soft Autos & Digital Hub"
                     className="mt-1 w-full border hairline-border bg-brand-black px-3 py-2 text-sm text-brand-white focus:border-brand-gold focus:outline-none"
                   />
                 </div>
@@ -711,10 +666,25 @@ export function MemberVendorsPage() {
                     maxLength={48}
                     value={storeSlug}
                     onChange={(e) => setStoreSlug(e.target.value)}
-                    placeholder="lagos-plug"
+                    placeholder="soft-autos"
                     className="mt-1 w-full border hairline-border bg-brand-black px-3 py-2 font-mono text-sm text-brand-white focus:border-brand-gold focus:outline-none"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="flex items-center gap-1.5 font-heading tracking-[0.14em] text-brand-cream uppercase">
+                  <MapPin className="h-3.5 w-3.5 text-brand-gold" />
+                  Physical Store Address / City (or Online)
+                </label>
+                <input
+                  type="text"
+                  maxLength={120}
+                  value={storeLocation}
+                  onChange={(e) => setStoreLocation(e.target.value)}
+                  placeholder="e.g. Lekki Phase 1, Lagos • Nationwide Delivery"
+                  className="mt-1 w-full border hairline-border bg-brand-black px-3 py-2 text-sm text-brand-white focus:border-brand-gold focus:outline-none"
+                />
               </div>
 
               <div>
@@ -726,7 +696,7 @@ export function MemberVendorsPage() {
                   maxLength={120}
                   value={tagline}
                   onChange={(e) => setTagline(e.target.value)}
-                  placeholder="Fast in-game delivery & digital services"
+                  placeholder="Luxury cars, designer fashion & digital guides"
                   className="mt-1 w-full border hairline-border bg-brand-black px-3 py-2 text-sm text-brand-white focus:border-brand-gold focus:outline-none"
                 />
               </div>
@@ -740,7 +710,7 @@ export function MemberVendorsPage() {
                   maxLength={800}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Describe what you sell and your delivery hours..."
+                  placeholder="Describe what you sell, physical showroom hours, and delivery options..."
                   className="mt-1 w-full border hairline-border bg-brand-black p-3 text-sm text-brand-white focus:border-brand-gold focus:outline-none"
                 />
               </div>
@@ -755,7 +725,7 @@ export function MemberVendorsPage() {
                   Cancel
                 </Button>
                 <Button type="submit" variant="primary" size="sm" disabled={savingStore}>
-                  {savingStore ? 'Saving...' : 'Publish Vendor Page'}
+                  {savingStore ? 'Saving...' : 'Publish Vendor Store'}
                 </Button>
               </div>
             </form>
@@ -778,7 +748,7 @@ export function MemberVendorsPage() {
                 </p>
                 <h3 className="mt-1 font-heading text-lg text-brand-white">
                   {orderingListing.title} ({orderingListing.price_currency}{' '}
-                  {orderingListing.price_amount.toLocaleString()})
+                  {Number(orderingListing.price_amount).toLocaleString()})
                 </h3>
               </div>
               <button
@@ -794,18 +764,22 @@ export function MemberVendorsPage() {
               onSubmit={(e) => void handlePlaceOrderAndOpenChat(e)}
               className="mt-4 space-y-3.5 text-xs"
             >
-              <div>
-                <label className="block font-heading tracking-[0.14em] text-brand-cream uppercase">
-                  Your LagosLife Username (if applicable)
-                </label>
-                <input
-                  type="text"
-                  value={recipientHandle}
-                  onChange={(e) => setRecipientHandle(e.target.value)}
-                  placeholder="@yourhandle"
-                  className="mt-1 w-full border hairline-border bg-brand-black px-3 py-2 text-sm text-brand-white focus:border-brand-gold focus:outline-none"
-                />
-              </div>
+              {orderingListing.category === 'lagos_life_funds' && (
+                <div>
+                  <label className="block font-heading tracking-[0.14em] text-brand-cream uppercase">
+                    Your LagosLife Username
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={recipientHandle}
+                    onChange={(e) => setRecipientHandle(e.target.value)}
+                    placeholder="@yourhandle"
+                    className="mt-1 w-full border hairline-border bg-brand-black px-3 py-2 text-sm text-brand-white focus:border-brand-gold focus:outline-none"
+                  />
+                </div>
+              )}
+
               <div>
                 <label className="block font-heading tracking-[0.14em] text-brand-cream uppercase">
                   Opening Message to Vendor
@@ -814,7 +788,7 @@ export function MemberVendorsPage() {
                   rows={2}
                   value={buyerNote}
                   onChange={(e) => setBuyerNote(e.target.value)}
-                  placeholder="Hi, I'm ready to pay — send your payment details in chat!"
+                  placeholder="Hi! Ready to buy — let's coordinate payment & delivery right here in chat."
                   className="mt-1 w-full border hairline-border bg-brand-black p-3 text-sm text-brand-white focus:border-brand-gold focus:outline-none"
                 />
               </div>
@@ -850,6 +824,20 @@ export function MemberVendorsPage() {
           }
         }}
         onSubmit={handleSaveListing}
+      />
+
+      <MarketplaceCartDrawer
+        isOpen={cartOpen}
+        items={cartItems}
+        onClose={() => setCartOpen(false)}
+        onRemoveItem={(id) => setCartItems(removeFromMarketplaceCart(id))}
+        onCheckoutItem={(id) => {
+          const found = listings.find((l) => l.id === id);
+          if (found) {
+            setOrderingListing(found);
+            setRecipientHandle(profile?.lagos_life_username ?? '');
+          }
+        }}
       />
 
       <OrderChatModal chat={activeChat} onClose={() => setActiveChat(null)} />

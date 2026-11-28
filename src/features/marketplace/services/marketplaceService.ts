@@ -2,6 +2,8 @@ import { supabase, supabaseConfig } from '@/lib/supabase/client';
 import type {
   MarketplaceCategoryCode,
   MarketplaceDisputeReason,
+  MarketplaceListingCommentRecord,
+  MarketplaceListingCommentRow,
   MarketplaceListingWithSellerRow,
   MarketplaceModerationStatus,
   MarketplaceOrderEventRecord,
@@ -15,6 +17,133 @@ import type {
   AdminOrderView,
   ListingFormValues,
 } from '@/features/marketplace/types/marketplace.types';
+
+const CART_STORAGE_KEY = 'vatar_marketplace_cart_v1';
+
+export interface MarketplaceCartItem {
+  listingId: string;
+  title: string;
+  priceAmount: number;
+  priceCurrency: string;
+  category: MarketplaceCategoryCode;
+  sellerUsername: string;
+  sellerId: string;
+  imageUrl: string | null;
+  location: string;
+  gameCurrencyAmount: number | null;
+}
+
+export function loadMarketplaceCart(): MarketplaceCartItem[] {
+  try {
+    const raw = localStorage.getItem(CART_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as MarketplaceCartItem[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveMarketplaceCart(items: MarketplaceCartItem[]): void {
+  try {
+    localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
+    window.dispatchEvent(new Event('vatar:cart-updated'));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function toggleMarketplaceCartItem(
+  listing: MarketplaceListingWithSellerRow,
+): { inCart: boolean; items: MarketplaceCartItem[] } {
+  const current = loadMarketplaceCart();
+  const exists = current.some((i) => i.listingId === listing.id);
+  if (exists) {
+    const next = current.filter((i) => i.listingId !== listing.id);
+    saveMarketplaceCart(next);
+    return { inCart: false, items: next };
+  }
+  const nextItem: MarketplaceCartItem = {
+    listingId: listing.id,
+    title: listing.title,
+    priceAmount: Number(listing.price_amount),
+    priceCurrency: listing.price_currency || 'NGN',
+    category: listing.category,
+    sellerUsername: listing.seller_username,
+    sellerId: listing.seller_id,
+    imageUrl: listing.image_urls?.[0] || null,
+    location: listing.location || '',
+    gameCurrencyAmount: listing.game_currency_amount ?? null,
+  };
+  const next = [nextItem, ...current];
+  saveMarketplaceCart(next);
+  return { inCart: true, items: next };
+}
+
+export function removeFromMarketplaceCart(listingId: string): MarketplaceCartItem[] {
+  const next = loadMarketplaceCart().filter((i) => i.listingId !== listingId);
+  saveMarketplaceCart(next);
+  return next;
+}
+
+export async function compressAndUploadListingPhoto(
+  file: File,
+  userId: string,
+): Promise<{ url: string | null; error: string | null }> {
+  if (!supabase) {
+    return { url: null, error: 'Supabase is not configured.' };
+  }
+  if (!file.type.startsWith('image/')) {
+    return { url: null, error: 'Please select a valid image file (JPG, PNG, or WebP).' };
+  }
+  if (file.size > 12 * 1024 * 1024) {
+    return { url: null, error: 'Image is too large (max 12 MB).' };
+  }
+
+  try {
+    // Client-side resize + WebP compression for fast mobile loading
+    const bitmap = await createImageBitmap(file);
+    const maxDim = 1200;
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      return { url: null, error: 'Could not process image on this device.' };
+    }
+    ctx.drawImage(bitmap, 0, 0, width, height);
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob((b) => resolve(b), 'image/webp', 0.82),
+    );
+    const uploadPayload = blob || file;
+    const ext = blob ? 'webp' : file.name.split('.').pop() || 'jpg';
+    const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+
+    const { error: uploadErr } = await supabase.storage
+      .from('marketplace-media')
+      .upload(path, uploadPayload, {
+        contentType: blob ? 'image/webp' : file.type,
+        upsert: false,
+      });
+
+    if (uploadErr) {
+      return { url: null, error: uploadErr.message };
+    }
+
+    const { data: pub } = supabase.storage.from('marketplace-media').getPublicUrl(path);
+    return { url: pub.publicUrl, error: null };
+  } catch (err) {
+    return {
+      url: null,
+      error: err instanceof Error ? err.message : 'Could not upload image.',
+    };
+  }
+}
 
 export async function fetchMarketplaceListings(
   category?: MarketplaceCategoryCode | null,
@@ -41,6 +170,12 @@ export async function fetchMarketplaceListings(
       price_amount: Number(row.price_amount),
       game_currency_amount:
         row.game_currency_amount !== null ? Number(row.game_currency_amount) : null,
+      location: row.location ?? '',
+      image_urls: Array.isArray(row.image_urls) ? row.image_urls : [],
+      likes_count: Number(row.likes_count ?? 0),
+      comments_count: Number(row.comments_count ?? 0),
+      viewer_has_liked: Boolean(row.viewer_has_liked),
+      viewer_has_favorited: Boolean(row.viewer_has_favorited),
     })),
     error: null,
   };
@@ -143,6 +278,8 @@ export async function createListing(
     p_price_currency: values.priceCurrency.trim().toUpperCase() || 'NGN',
     p_game_currency_amount: gameAmount,
     p_seller_contact_note: values.sellerContactNote.trim() || null,
+    p_location: values.location.trim(),
+    p_image_urls: values.imageUrls.filter(Boolean).slice(0, 4),
   });
 
   return { error: error?.message ?? null };
@@ -179,9 +316,76 @@ export async function updateOwnListing(
     p_game_currency_amount: gameAmount,
     p_seller_contact_note: values.sellerContactNote.trim() || null,
     p_status: values.status,
+    p_location: values.location.trim(),
+    p_image_urls: values.imageUrls.filter(Boolean).slice(0, 4),
   });
 
   return { error: error?.message ?? null };
+}
+
+export async function toggleListingLike(
+  listingId: string,
+): Promise<{ liked: boolean; likesCount: number; error: string | null }> {
+  if (!supabase) {
+    return { liked: false, likesCount: 0, error: 'Supabase is not configured.' };
+  }
+  const { data, error } = await supabase.rpc('toggle_marketplace_listing_like', {
+    p_listing_id: listingId,
+  });
+  if (error) return { liked: false, likesCount: 0, error: error.message };
+  return {
+    liked: Boolean(data?.liked),
+    likesCount: Number(data?.likes_count ?? 0),
+    error: null,
+  };
+}
+
+export async function toggleListingFavorite(
+  listingId: string,
+): Promise<{ favorited: boolean; error: string | null }> {
+  if (!supabase) {
+    return { favorited: false, error: 'Supabase is not configured.' };
+  }
+  const { data, error } = await supabase.rpc('toggle_marketplace_listing_favorite', {
+    p_listing_id: listingId,
+  });
+  if (error) return { favorited: false, error: error.message };
+  return { favorited: Boolean(data?.favorited), error: null };
+}
+
+export async function fetchListingComments(
+  listingId: string,
+): Promise<{ comments: MarketplaceListingCommentRow[]; error: string | null }> {
+  if (!supabase) return { comments: [], error: 'Supabase is not configured.' };
+  const { data, error } = await supabase.rpc('get_marketplace_listing_comments', {
+    p_listing_id: listingId,
+  });
+  if (error) return { comments: [], error: error.message };
+  return { comments: Array.isArray(data) ? data : [], error: null };
+}
+
+export async function addListingComment(
+  listingId: string,
+  body: string,
+): Promise<{ comment: MarketplaceListingCommentRecord | null; error: string | null }> {
+  if (!supabase) return { comment: null, error: 'Supabase is not configured.' };
+  const { data, error } = await supabase.rpc('add_marketplace_listing_comment', {
+    p_listing_id: listingId,
+    p_body: body.trim(),
+  });
+  if (error) return { comment: null, error: error.message };
+  return { comment: data, error: null };
+}
+
+export async function deleteListingComment(
+  commentId: string,
+): Promise<{ ok: boolean; error: string | null }> {
+  if (!supabase) return { ok: false, error: 'Supabase is not configured.' };
+  const { data, error } = await supabase.rpc('delete_marketplace_listing_comment', {
+    p_comment_id: commentId,
+  });
+  if (error) return { ok: false, error: error.message };
+  return { ok: Boolean(data), error: null };
 }
 
 export async function createPurchaseRequest(input: {

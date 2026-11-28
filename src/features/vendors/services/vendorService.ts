@@ -25,6 +25,7 @@ export async function upsertMyVendorStore(params: {
   bankName: string;
   accountNumber: string;
   accountName: string;
+  storeLocation?: string;
 }): Promise<{ store: VendorStoreRecord | null; error: string | null }> {
   if (!supabase) return { store: null, error: 'Supabase is not configured.' };
   const { data, error } = await supabase.rpc('upsert_my_vendor_store', {
@@ -35,6 +36,7 @@ export async function upsertMyVendorStore(params: {
     p_bank_name: params.bankName.trim(),
     p_account_number: params.accountNumber.trim(),
     p_account_name: params.accountName.trim(),
+    p_store_location: params.storeLocation?.trim() || '',
   });
   if (error) return { store: null, error: error.message };
   return { store: data, error: null };

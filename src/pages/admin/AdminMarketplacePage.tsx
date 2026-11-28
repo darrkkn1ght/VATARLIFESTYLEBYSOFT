@@ -420,10 +420,30 @@ export function AdminMarketplacePage() {
                         Seller: <span className="text-brand-gold">@{listing.seller_username}</span>
                         {' • '}Price: {listing.price_currency}{' '}
                         {listing.price_amount.toLocaleString()}
+                        {listing.location ? ` • 📍 ${listing.location}` : ''}
                         {listing.game_currency_amount
                           ? ` • Funds: ₦${formatGameFundsShort(listing.game_currency_amount)}`
                           : ''}
                       </p>
+                      {listing.image_urls && listing.image_urls.length > 0 && (
+                        <div className="mt-3 flex gap-2">
+                          {listing.image_urls.map((imgUrl) => (
+                            <a
+                              key={imgUrl}
+                              href={imgUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block h-14 w-14 overflow-hidden border hairline-border bg-brand-black"
+                            >
+                              <img
+                                src={imgUrl}
+                                alt=""
+                                className="h-full w-full object-cover"
+                              />
+                            </a>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap gap-2">

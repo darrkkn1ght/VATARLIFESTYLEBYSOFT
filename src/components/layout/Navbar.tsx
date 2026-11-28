@@ -137,20 +137,27 @@ export function Navbar() {
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={() => setMobileMenuOpen((prev) => !prev)}
-          aria-expanded={mobileMenuOpen}
-          aria-controls="mobile-navigation"
-          aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
-          className="inline-flex h-10 w-10 items-center justify-center border hairline-border bg-brand-charcoal/80 text-brand-cream transition-colors hover:border-brand-gold hover:text-brand-gold xl:hidden"
-        >
-          {mobileMenuOpen ? (
-            <X className="h-5 w-5" aria-hidden="true" />
-          ) : (
-            <Menu className="h-5 w-5" aria-hidden="true" />
+        <div className="flex items-center gap-2 xl:hidden">
+          {isAuthenticated && (
+            <Button to={accountDestination} variant="primary" size="sm">
+              {accountLabel}
+            </Button>
           )}
-        </button>
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen((prev) => !prev)}
+            aria-expanded={mobileMenuOpen}
+            aria-controls="mobile-navigation"
+            aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            className="inline-flex h-10 w-10 items-center justify-center border hairline-border bg-brand-charcoal/80 text-brand-cream transition-colors hover:border-brand-gold hover:text-brand-gold"
+          >
+            {mobileMenuOpen ? (
+              <X className="h-5 w-5" aria-hidden="true" />
+            ) : (
+              <Menu className="h-5 w-5" aria-hidden="true" />
+            )}
+          </button>
+        </div>
       </PageContainer>
 
       <AnimatePresence>

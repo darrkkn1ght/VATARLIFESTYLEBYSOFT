@@ -39,6 +39,20 @@ export async function signUpMember(
     return { error: error.message };
   }
 
+  // If email confirmation is disabled or auto-confirmed, ensure an active persistent session exists immediately
+  if (!data.session) {
+    const signInAttempt = await supabase.auth.signInWithPassword({
+      email: payload.email.trim().toLowerCase(),
+      password: payload.password,
+    });
+    if (!signInAttempt.error && signInAttempt.data.session) {
+      return {
+        error: null,
+        requiresEmailVerification: false,
+      };
+    }
+  }
+
   return {
     error: null,
     requiresEmailVerification: !data.session,

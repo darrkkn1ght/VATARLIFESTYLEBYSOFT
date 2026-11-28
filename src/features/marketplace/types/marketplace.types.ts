@@ -9,9 +9,13 @@ import type {
 
 export const MARKETPLACE_CATEGORY_LABELS: Record<MarketplaceCategoryCode, string> = {
   lagos_life_funds: 'Lagos Life Game Funds',
-  digital_goods: 'Digital Goods',
+  digital_goods: 'Digital Products & Guides',
   digital_services: 'Digital Services',
-  community_products: 'Community Products & Services',
+  cars_vehicles: 'Cars & Automobiles',
+  fashion_clothing: 'Clothes, Shoes & Fashion',
+  gadgets_electronics: 'Phones, Laptops & Gadgets',
+  real_estate: 'Real Estate & Shortlets',
+  community_products: 'Other Real-Life Store Items',
 };
 
 export const DISPUTE_REASON_LABELS: Record<MarketplaceDisputeReason, string> = {
@@ -30,6 +34,8 @@ export interface ListingFormValues {
   priceCurrency: string;
   gameCurrencyAmount: string;
   sellerContactNote: string;
+  location: string;
+  imageUrls: string[];
   status: MarketplaceListingStatus;
 }
 

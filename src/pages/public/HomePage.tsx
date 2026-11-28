@@ -17,6 +17,7 @@ import heroEditorialImg from '@/assets/hero-editorial.webp';
 import { PageContainer } from '@/components/layout/PageContainer';
 import { Button } from '@/components/ui/Button';
 import { ACTIVE_SOCIAL_CHANNELS, WHATSAPP_CHANNEL } from '@/config/socials';
+import { useAuth } from '@/features/auth/hooks/useAuth';
 import {
   calculateTrillionQuoteNgn,
   formatTrillionLabel,
@@ -54,11 +55,17 @@ const QUICK_PILLARS = [
 
 export function HomePage() {
   const navigate = useNavigate();
+  const { isAuthenticated, isApprovedMember, isAdmin, profile } = useAuth();
   const [trillionsInput, setTrillionsInput] = useState<string>('0.5');
 
   const parsedT = normalizeTrillions(trillionsInput);
   const displayLabel = formatTrillionLabel(parsedT);
   const { finalPrice } = calculateTrillionQuoteNgn(parsedT, 0);
+  const portalHref = isAdmin
+    ? ROUTES.admin
+    : isApprovedMember
+      ? ROUTES.dashboard
+      : ROUTES.membershipStatus;
 
   return (
     <div className="bg-brand-black">
@@ -103,12 +110,28 @@ export function HomePage() {
                   Buy Currency
                   <ArrowRight className="h-4 w-4" aria-hidden="true" />
                 </Button>
-                <Button to={ROUTES.login} variant="secondary" size="lg">
-                  Sign In
+                <Button to={ROUTES.marketplace} variant="secondary" size="lg">
+                  <Store className="h-4 w-4 text-brand-gold" aria-hidden="true" />
+                  Explore Marketplace
                 </Button>
-                <Button to={ROUTES.register} variant="subtle" size="lg">
-                  Create Account
-                </Button>
+                {isAuthenticated ? (
+                  <Button to={portalHref} variant="subtle" size="lg">
+                    {isAdmin
+                      ? 'Admin Center'
+                      : profile?.username
+                        ? `Dashboard (@${profile.username})`
+                        : 'My Dashboard'}
+                  </Button>
+                ) : (
+                  <>
+                    <Button to={ROUTES.login} variant="subtle" size="lg">
+                      Sign In
+                    </Button>
+                    <Button to={ROUTES.register} variant="ghost" size="lg">
+                      Create Account
+                    </Button>
+                  </>
+                )}
               </div>
 
               {/* 3-Column Live Metrics Strip */}
@@ -234,6 +257,13 @@ export function HomePage() {
         </PageContainer>
       </section>
 
+      {/* Public Verified Member Reviews (Visible Outside Login!) */}
+      <section className="border-b hairline-border bg-brand-black py-8">
+        <PageContainer>
+          <ReviewsSection />
+        </PageContainer>
+      </section>
+
       {/* VIP Discount Tiers Preview */}
       <section className="border-b hairline-border bg-brand-obsidian py-10">
         <PageContainer>
@@ -325,9 +355,6 @@ export function HomePage() {
               </span>
             </div>
           </div>
-
-          {/* Real Member Reviews & 5-Star Ratings */}
-          <ReviewsSection />
 
           <div className="flex flex-wrap items-center justify-between gap-4 border hairline-border bg-brand-charcoal/40 px-5 py-4">
             <p className="font-heading text-xs tracking-[0.18em] text-brand-cream uppercase">

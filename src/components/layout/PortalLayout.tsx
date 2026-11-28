@@ -22,6 +22,20 @@ export function PortalLayout({ sectionLabel, navItems }: PortalLayoutProps) {
   const [unreadAnnouncements, setUnreadAnnouncements] = useState(0);
   const [pendingMoneyPacks, setPendingMoneyPacks] = useState(0);
 
+  // Keep private portal routes out of search engine indexing (protects domain reputation)
+  useEffect(() => {
+    let meta = document.querySelector('meta[name="robots"]');
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.setAttribute('name', 'robots');
+      document.head.appendChild(meta);
+    }
+    meta.setAttribute('content', 'noindex, nofollow');
+    return () => {
+      meta?.setAttribute('content', 'index, follow');
+    };
+  }, []);
+
   const hasMemberAnnouncementsLink = Boolean(
     navItems?.some((item) => item.to === ROUTES.dashboardAnnouncements),
   );

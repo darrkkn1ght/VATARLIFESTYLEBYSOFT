@@ -21,6 +21,10 @@ export type MarketplaceCategoryCode =
   | 'lagos_life_funds'
   | 'digital_goods'
   | 'digital_services'
+  | 'cars_vehicles'
+  | 'fashion_clothing'
+  | 'gadgets_electronics'
+  | 'real_estate'
   | 'community_products';
 
 export type MarketplaceListingStatus = 'available' | 'unavailable' | 'sold';
@@ -193,6 +197,8 @@ export type MarketplaceListingRecord = {
   price_currency: string;
   game_currency_amount: number | null;
   seller_contact_note: string | null;
+  location?: string;
+  image_urls?: string[];
   status: MarketplaceListingStatus;
   moderation_status: MarketplaceModerationStatus;
   moderation_note: string | null;
@@ -213,11 +219,33 @@ export type MarketplaceListingWithSellerRow = {
   price_currency: string;
   game_currency_amount: number | null;
   seller_contact_note: string | null;
+  location?: string;
+  image_urls?: string[];
   status: MarketplaceListingStatus;
   moderation_status: MarketplaceModerationStatus;
   moderation_note: string | null;
   created_at: string;
   updated_at: string;
+  likes_count?: number;
+  comments_count?: number;
+  viewer_has_liked?: boolean;
+  viewer_has_favorited?: boolean;
+  vendor_store_name?: string | null;
+  vendor_store_slug?: string | null;
+  vendor_is_verified?: boolean;
+};
+
+export type MarketplaceListingCommentRecord = {
+  id: string;
+  listing_id: string;
+  user_id: string;
+  body: string;
+  created_at: string;
+};
+
+export type MarketplaceListingCommentRow = MarketplaceListingCommentRecord & {
+  username: string;
+  full_name: string;
 };
 
 export type MarketplaceOrderRecord = {
@@ -449,6 +477,7 @@ export type VendorStoreRecord = {
   bank_name: string;
   account_number: string;
   account_name: string;
+  store_location?: string;
   status: VendorStoreStatus;
   is_verified: boolean;
   created_at: string;
@@ -822,6 +851,8 @@ export type Database = {
           p_price_currency?: string;
           p_game_currency_amount?: number | null;
           p_seller_contact_note?: string | null;
+          p_location?: string;
+          p_image_urls?: string[];
         };
         Returns: MarketplaceListingRecord;
       };
@@ -835,8 +866,30 @@ export type Database = {
           p_game_currency_amount?: number | null;
           p_seller_contact_note?: string | null;
           p_status?: MarketplaceListingStatus;
+          p_location?: string;
+          p_image_urls?: string[];
         };
         Returns: MarketplaceListingRecord;
+      };
+      toggle_marketplace_listing_like: {
+        Args: { p_listing_id: string };
+        Returns: { liked: boolean; likes_count: number };
+      };
+      toggle_marketplace_listing_favorite: {
+        Args: { p_listing_id: string };
+        Returns: { favorited: boolean };
+      };
+      get_marketplace_listing_comments: {
+        Args: { p_listing_id: string };
+        Returns: MarketplaceListingCommentRow[];
+      };
+      add_marketplace_listing_comment: {
+        Args: { p_listing_id: string; p_body: string };
+        Returns: MarketplaceListingCommentRecord;
+      };
+      delete_marketplace_listing_comment: {
+        Args: { p_comment_id: string };
+        Returns: boolean;
       };
       admin_moderate_listing: {
         Args: {
@@ -986,6 +1039,7 @@ export type Database = {
           p_bank_name?: string;
           p_account_number?: string;
           p_account_name?: string;
+          p_store_location?: string;
         };
         Returns: VendorStoreRecord;
       };
